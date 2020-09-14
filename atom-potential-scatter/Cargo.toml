@@ -1,0 +1,15 @@
+[package]
+name = "atom-potential-scatter"
+version = "0.1.0"
+authors = ["Sam Lambrick <sam.m@lambrick.org.uk>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+name = "atom_potential_scatter"
+crate-type = ["dylib"]
+
+[dependencies]
+nalgebra = "0.20"
+splines = "1.0.0"
