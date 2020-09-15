@@ -16,6 +16,7 @@ import matplotlib.cm as cm
 import pandas as pd
 import os
 import atom_potential_scatter as atom
+import time
 
 from matplotlib import rcParams
 rcParams.update({'figure.autolayout': True})
@@ -100,29 +101,65 @@ def many_single_particles_test(save_dir):
     fig.savefig("many_trajectories.pdf", bbox_inches="tight")
 
 
-def main():
-    n_atom = 1001
-    x = np.linspace(-40, 10, n_atom)
-    y = np.repeat(15, n_atom)
-    init_pos = np.array([x, y])
-    init_v = np.repeat(np.array([[1.0], [-1.0]]), n_atom, axis=1)
-    dt = 0.01
-    it = 3300
-    fname = "multi_rust/test"
-    potential = {'Depth': 0.5, 'Distance': 0.5, 'Width': 1}
-    record = 20
-    atom.run_many_particle(init_pos, init_v, dt, it, fname, potential, record)
-
-    # PLot the trajectories
+def trajectory_plot(dir_name, potential):
+    d = "results/" + dir_name if dir_name[0:7] != "results" else dir_name
+    # Plot the trajectories
     (fig, ax) = plot_potential_2d(potential)
-    fnames = os.listdir(path='multi_rust')
-    for f in fnames:
-        df = pd.read_csv('multi_rust/' + f)
+    fnames = os.listdir(path=d)
+    fnames2 = list(filter(lambda k: "atom" in k, fnames))
+    for f in fnames2:
+        df = pd.read_csv(dir_name + "/" + f)
         ax.plot(df['x'], df['y'], color='black')
     ax.set_ylim([-1, 20])
     ax.set_xlim([-40, 40])
     ax.set_title("Atom potential and trajectory")
-    fig.savefig("multi_rust/many_trajectories_rust.pdf", bbox_inches="tight")
+    fig.savefig(d + "/many_trajectories_rust.pdf", bbox_inches="tight")
+
+
+def error_plot(dir_name):
+    d = "results/" + dir_name if dir_name[0:7] != "results" else dir_name
+    fnames = os.listdir(path=d)
+    fnames2 = list(filter(lambda k: "atom" in k, fnames))
+    # Plot the errors
+    fig = plt.figure()
+    ax = fig.add_axes([0, 0, 1.2, 1])
+    for f in fnames2:
+        df = pd.read_csv(d + "/" + f)
+        ax.plot(df['time'], df['e_x'], color='blue')
+        ax.plot(df['time'], df['e_y'], color='red')
+    ax.legend(['Error in x'], ['Error in y'])
+
+    fig2 = plt.figure()
+    ax = fig2.add_axes([0, 0, 1.2, 1])
+    cuml_errors = np.zeros(len(fnames2))
+    for i, f in enumerate(fnames2):
+        df = pd.read_csv(d + "/" + f)
+        cuml_errors[i] = sum(df['e_x'])
+    ax.hist(cuml_errors)
+
+
+def multiple_particle_test():
+    n_atom = 10001
+    x = np.linspace(-40, 10, n_atom)
+    y = np.repeat(15, n_atom)
+    init_pos = np.array([x, y])
+    init_v = np.repeat(np.array([[1.0], [-1.0]]), n_atom, axis=1)
+    dt = 0.02
+    it = 1650
+    fname = "test"
+    potential = {'Depth': 0.8, 'Distance': 0.5, 'Width': 1}
+    record = 150
+    start = time.time()
+    d = atom.run_many_particle(init_pos, init_v, dt, it, fname, potential,
+                               record, method="Fehlberg")
+    end = time.time()
+    print(end - start)
+    trajectory_plot(d, potential)
+    error_plot(d)
+
+
+def main():
+    multiple_particle_test()
 
 
 if __name__ == "__main__":
