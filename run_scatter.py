@@ -159,7 +159,14 @@ def multiple_particle_test():
 
 
 def main():
-    multiple_particle_test()
+    x = np.linspace(0.0, 12.0, 21)
+    y = np.random.normal(size=21)
+    xs = np.linspace(0.0, 12.0, 501)
+    ys = atom.interp_test(x, y, xs)
+    fig = plt.figure()
+    ax = fig.add_axes([0, 0, 1.2, 1])
+    ax.plot(xs, ys)
+    ax.plot(x, y, 'o')
 
 
 if __name__ == "__main__":

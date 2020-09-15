@@ -36,6 +36,14 @@ const B3_: f64 = 1408.0/2565.0;
 const B4_: f64 = 2197.0/4104.0;
 const B5_: f64 = -1.0/5.0;
 
+fn interpolate_surf(xs: Vec<f64>, ys: Vec<f64>) -> Spline<f64,f64> {
+    let mut ks = vec![Key::new(0.0, 0.0, Interpolation::CatmullRom); xs.len()];
+    for i in 0..xs.len() {
+        ks[i] = Key::new(xs[i], ys[i], Interpolation::CatmullRom);
+    }
+    Spline::from_vec(ks)
+}
+
 fn gaussian(x: f64, s: f64, height: f64) -> f64{
     height*(1.0/(s*(2.0*PI).sqrt()))*(-x.powi(2)/(2.0*s.powi(2))).exp()
 }
@@ -98,7 +106,6 @@ struct Potential {
 struct Atom {
     q_current: Vector4<f64>,
     error_current: Vector4<f64>,
-    mass: f64,
     x_history: Vec<f64>,
     y_history: Vec<f64>,
     vx_history: Vec<f64>,
@@ -128,7 +135,7 @@ impl Atom {
         };
         self.q_current = qs.0;
         self.error_current = qs.0 - qs.1;
-        self.current_it = self.current_it + 1;
+        self.current_it += 1;
         if self.current_it % 10 == 0 && self.history {
             let ind = self.current_it/10;
             self.add_record(ind);
@@ -141,7 +148,7 @@ impl Atom {
         }
     }
     
-    fn write_trajectory(&self, f_name: &String, h: f64) {
+    fn write_trajectory(&self, f_name: &str, h: f64) {
         let mut file = OpenOptions::new()
             .write(true)
             .create(true)
@@ -150,9 +157,9 @@ impl Atom {
             .unwrap();
         
         if self.record_error {
-            writeln!(file, "{}", "time,x,y,vx,vy,e_x,e_y,e_vx,e_vy").unwrap();
+            writeln!(file, "time,x,y,vx,vy,e_x,e_y,e_vx,e_vy").unwrap();
         } else {
-            writeln!(file, "{}", "time,x,y,vx,vy").unwrap();
+            writeln!(file, "time,x,y,vx,vy").unwrap();
         }
         
         let mut t: f64 = 0.0;
@@ -184,7 +191,7 @@ impl std::fmt::Display for Atom {
 }
 
 fn run_particle(init_x: Vector2<f64>, init_v: Vector2<f64>, h: f64, n: usize, 
-        param: &Potential, record_atom: bool, method: &String) -> Atom {
+        param: &Potential, record_atom: bool, method: &str) -> Atom {
     let m = if record_atom {((n as f64)/10.0).round() as usize} else {0};
     let record_error =  method.eq(&String::from("Fehlberg"));
     if !record_error {
@@ -194,7 +201,6 @@ fn run_particle(init_x: Vector2<f64>, init_v: Vector2<f64>, h: f64, n: usize,
     let mut he = Atom {
         q_current: Vector4::new(init_x[0], init_x[1], init_v[0], init_v[1]),
         error_current: Vector4::new(0.0, 0.0, 0.0, 0.0),
-        mass: 1.0,
         x_history: vec![0.0; m],
         y_history: vec![0.0; m],
         vx_history: vec![0.0; m],
@@ -202,7 +208,7 @@ fn run_particle(init_x: Vector2<f64>, init_v: Vector2<f64>, h: f64, n: usize,
         error_history: vec![Vector4::new(0.0, 0.0, 0.0, 0.0); m_e],
         current_it: 0,
         history: record_atom,
-        record_error: record_error
+        record_error
     };
     
     if he.history {
@@ -212,14 +218,14 @@ fn run_particle(init_x: Vector2<f64>, init_v: Vector2<f64>, h: f64, n: usize,
     he
 }
 
-fn save_pos_vel(pos: &[Vector2<f64>], vel: &[Vector2<f64>], f_name: &String) {
+fn save_pos_vel(pos: &[Vector2<f64>], vel: &[Vector2<f64>], f_name: &str) {
     let mut file = OpenOptions::new()
             .write(true)
             .create(true)
             .truncate(true)
             .open(f_name)
             .unwrap();
-    writeln!(file, "{}", "atom,,x,y,v_x,v_y").unwrap();
+    writeln!(file, "atom,,x,y,v_x,v_y").unwrap();
     
     for i in 0..pos.len() {
         let line = format!("{},{},{},{},{}", i, pos[i][0], pos[i][1], vel[i][0], 
@@ -228,7 +234,7 @@ fn save_pos_vel(pos: &[Vector2<f64>], vel: &[Vector2<f64>], f_name: &String) {
     }
 }
 
-fn compose_save_name(fname: &String, i: usize) -> String {
+fn compose_save_name(fname: &str, i: usize) -> String {
     let ith: String = i.to_string();
     let mut num: String = String::from("0").repeat(8 - ith.len());//.push_str(&ith);
     num.push_str(&ith);
@@ -246,24 +252,25 @@ fn compose_save_name(fname: &String, i: usize) -> String {
 //-----------------------------------------------------------------------------
 
 #[no_mangle]
-pub extern fn single_particle(x: f64, y: f64, vx: f64, vy: f64, h: f64, 
+#[doc(saftey)]
+pub unsafe extern fn single_particle(x: f64, y: f64, vx: f64, vy: f64, h: f64, 
         n_it: u64, text: *const u8, len: u64, p1: *const f64, method: *const u8, len2: u64) {
     let init_x = Vector2::new(x, y);
     let init_v = Vector2::new(vx, vy);
     
     // Have to go via C-string to get the file name
     assert!(!text.is_null());
-    let c_str = unsafe { slice::from_raw_parts(text, len as usize) };
+    let c_str = { slice::from_raw_parts(text, len as usize) };
     let fname = str::from_utf8(&c_str).unwrap();
     
     // Have to go via C-string to get the integration method
     assert!(!method.is_null());
-    let c_str2 = unsafe { slice::from_raw_parts(method, len2 as usize) };
+    let c_str2 = { slice::from_raw_parts(method, len2 as usize) };
     let method = str::from_utf8(&c_str2).unwrap();
     
     // The parameters of the potential
     assert!(!p1.is_null());
-    let p2 = unsafe { slice::from_raw_parts(p1, 3) };
+    let p2 = { slice::from_raw_parts(p1, 3) };
     let param = Potential{
         de: p2[0],
         re: p2[1],
@@ -277,23 +284,24 @@ pub extern fn single_particle(x: f64, y: f64, vx: f64, vy: f64, h: f64,
 }
 
 #[no_mangle]
-pub extern fn multiple_particle(xs: *const f64, ys: *const f64, vxs: *const f64, 
+#[doc(saftey)]
+pub unsafe extern fn multiple_particle(xs: *const f64, ys: *const f64, vxs: *const f64, 
         vys: *const f64, n_atom: u64, h: f64, n_it: usize, text: *const u8, len: u64, 
         p1: *const f64, record: u64, method: *const u8, len2: u64) {
     // Get a proper rust array from what we are passed
     let n = n_atom as usize;
     assert!(!xs.is_null());
-    let x = unsafe { slice::from_raw_parts(xs, n) };
+    let x = { slice::from_raw_parts(xs, n) };
     assert!(!ys.is_null());
-    let y = unsafe { slice::from_raw_parts(ys, n) };
+    let y = { slice::from_raw_parts(ys, n) };
     assert!(!vxs.is_null());
-    let vx = unsafe { slice::from_raw_parts(vxs, n) };
+    let vx = { slice::from_raw_parts(vxs, n) };
     assert!(!vys.is_null());
-    let vy = unsafe { slice::from_raw_parts(vys, n) };
+    let vy = { slice::from_raw_parts(vys, n) };
     
     // The parameters of the potential
     assert!(!p1.is_null());
-    let p2 = unsafe { slice::from_raw_parts(p1, 3) };
+    let p2 = { slice::from_raw_parts(p1, 3) };
     let param = Potential{
         de: p2[0],
         re: p2[1],
@@ -302,12 +310,12 @@ pub extern fn multiple_particle(xs: *const f64, ys: *const f64, vxs: *const f64,
     
     // Have to go via C-string to get the file name
     assert!(!text.is_null());
-    let c_str = unsafe { slice::from_raw_parts(text, len as usize) };
+    let c_str = { slice::from_raw_parts(text, len as usize) };
     let fname = str::from_utf8(&c_str).unwrap();
     
     // Have to go via C-string to get the integration method
     assert!(!method.is_null());
-    let c_str2 = unsafe { slice::from_raw_parts(method, len2 as usize) };
+    let c_str2 = { slice::from_raw_parts(method, len2 as usize) };
     let method = str::from_utf8(&c_str2).unwrap();
     
     // Data structures for all final positions and direction
@@ -339,19 +347,20 @@ pub extern fn multiple_particle(xs: *const f64, ys: *const f64, vxs: *const f64,
 }
 
 #[no_mangle]
-pub extern fn calc_potential(xs: *const f64, ys: *const f64, vs: *mut f64, len: u64, p1: *const f64) {
+#[doc(saftey)]
+pub unsafe extern fn calc_potential(xs: *const f64, ys: *const f64, vs: *mut f64, len: u64, p1: *const f64) {
     // Get a proper rust array from what we are passed
     let l = len as usize;
     assert!(!xs.is_null());
-    let x = unsafe { slice::from_raw_parts(xs, l) };
+    let x = { slice::from_raw_parts(xs, l) };
     assert!(!ys.is_null());
-    let y = unsafe { slice::from_raw_parts(ys, l) };
+    let y = { slice::from_raw_parts(ys, l) };
     assert!(!ys.is_null());
-    let v = unsafe { slice::from_raw_parts_mut(vs, l) };
+    let v = { slice::from_raw_parts_mut(vs, l) };
     
     // The parameters of the potential
     assert!(!p1.is_null());
-    let p2 = unsafe { slice::from_raw_parts(p1, 3) };
+    let p2 = { slice::from_raw_parts(p1, 3) };
     let param = Potential{
         de: p2[0],
         re: p2[1],
@@ -364,26 +373,59 @@ pub extern fn calc_potential(xs: *const f64, ys: *const f64, vs: *mut f64, len: 
 }
 
 #[no_mangle]
-pub extern fn gauss_bump(xs: *const f64, ys: *mut f64, len: u64, s: f64) {
+#[doc(saftey)]
+pub unsafe extern fn gauss_bump(xs: *const f64, ys: *mut f64, len: u64, sigma: f64) {
     // Get a proper rust array from what we are passed
     let l = len as usize;
     assert!(!xs.is_null());
-    let x = unsafe { slice::from_raw_parts(xs, l) };
+    let x = { slice::from_raw_parts(xs, l) };
     assert!(!ys.is_null());
-    let y = unsafe { slice::from_raw_parts_mut(ys, l) };
+    let y = { slice::from_raw_parts_mut(ys, l) };
     
     let h: f64 = 30.0;
     for i in 1..l {
-        y[i] = gaussian(x[i], s, h);
+        y[i] = gaussian(x[i], sigma, h);
     }
 }
 
 
 #[no_mangle]
-pub extern fn print_text(text: *const u8, len: u64) {
+#[doc(saftey)]
+pub unsafe extern fn print_text(text: *const u8, len: u64) {
     assert!(!text.is_null());
-    let c_str = unsafe { slice::from_raw_parts(text, len as usize) };
+    let c_str = { slice::from_raw_parts(text, len as usize) };
     let string = str::from_utf8(&c_str).unwrap();
     println!("{}", len);
     println!("{}", string);
+}
+
+#[no_mangle]
+#[doc(saftey)]
+pub unsafe extern fn interpolate_test(xs: *const f64, ys: *mut f64, len: u64, 
+        new_x: *const f64, new_y: *mut f64, n_interp: u64) {
+    let l = len as usize;
+    assert!(!xs.is_null());
+    let x = { slice::from_raw_parts(xs, l) };
+    assert!(!ys.is_null());
+    let y = { slice::from_raw_parts(ys, l) };
+    
+    let m = n_interp as usize;
+    assert!(!new_x.is_null());
+    let xi = { slice::from_raw_parts(new_x, m) };
+    assert!(!new_y.is_null());
+    let yi = { slice::from_raw_parts_mut(new_y, m) };
+    
+    let xx = x.to_vec();
+    let yy = y.to_vec();
+    
+    let splin = interpolate_surf(xx, yy);
+    println!("{:?}", splin);
+    
+    for i in 0..m {
+        yi[i] = match splin.clamped_sample(xi[i]) {
+            Some(val) => val,
+            None     => f64::NAN
+        };
+        println!("({}, {})", xi[i], yi[i]);
+    }
 }

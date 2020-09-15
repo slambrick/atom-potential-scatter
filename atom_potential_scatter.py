@@ -118,3 +118,14 @@ def morse_1d(ys, potential):
     a = potential['Width']
     re = potential['Distance']
     return(de*(np.exp(-2.0*a*(ys - re)) - 2.0*np.exp(-a*(ys - re))))
+
+
+def interp_test(x, y, xs):
+    i = x.ctypes.data_as(ctypes.POINTER(c_double))
+    j = y.ctypes.data_as(ctypes.POINTER(c_double))
+    k = xs.ctypes.data_as(ctypes.POINTER(c_double))
+    ys = np.zeros(xs.shape[0])
+    ll = ys.ctypes.data_as(ctypes.POINTER(c_double))
+    atom_scatter.interpolate_test(i, j, c_uint64(x.shape[0]), k, ll,
+                                  c_uint64(xs.shape[0]))
+    return(ys)
