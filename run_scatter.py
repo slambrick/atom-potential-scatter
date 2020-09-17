@@ -158,18 +158,17 @@ def multiple_particle_test():
     error_plot(d)
 
 
-def plot_random_surface(surf):
+def plot_random_surface(surf, potential):
     fig1 = plt.figure()
     ax1 = fig1.add_axes([0, 0, 1, 0.5])
     ax1.plot(surf['x'], surf['y'])
 
-    potential = {'Depth': 0.8, 'Distance': 0.5, 'Width': 1}
-    xx = np.linspace(-500, 500, 401)
-    yy = np.linspace(-2, 30, 171)
+    xx = np.linspace(-80, 80, 401)
+    yy = np.linspace(-5, 30, 171)
     g = np.meshgrid(xx, yy)
     V = atom.morse_potential(g[0].flatten(), g[1].flatten(), potential, surf).reshape((171, 401))
     fig = plt.figure()
-    ax = fig.add_axes([0, 0, 4, 0.5])
+    ax = fig.add_axes([0, 0, 3, 0.5])
     cs = ax.contourf(g[0], g[1], V, cmap=cm.coolwarm,
                      levels=np.linspace(-1, 1, 21), extend='max')
     ax.set_xlabel("x")
@@ -181,19 +180,19 @@ def plot_random_surface(surf):
 
 def main():
     # Generate a random surface
-    (f, x) = atom.random_surf_gen_core(1, 0.1, 10, 0.1, 10001)
+    (f, x) = atom.random_surf_gen_core(1, 0.02, 2, 0.1, 10001)
     surf = {'x': x, 'y': f, 'type': 'interpolate'}
     
     # Trace atom trajectories
-    n_atom = 201
-    x = np.linspace(-200, 150, n_atom)
+    n_atom = 101
+    x = np.linspace(-50, 50, n_atom)
     y = np.repeat(15, n_atom)
     init_pos = np.array([x, y])
     init_v = np.repeat(np.array([[1.0], [-1.0]]), n_atom, axis=1)
-    dt = 0.04
-    it = 700
+    dt = 0.02
+    it = 2*1800
     fname = "test"
-    potential = {'Depth': 0.8, 'Distance': 0.5, 'Width': 1}
+    potential = {'Depth': 0.2, 'Distance': 0.5, 'Width': 1}
     record = 2
     start = time.time()
     d = atom.run_many_particle(init_pos, init_v, dt, it, fname, potential,
@@ -202,15 +201,14 @@ def main():
     print(end - start)
     
     # Plot the potential
-    (fig, ax) = plot_random_surface(surf)
+    (fig, ax) = plot_random_surface(surf, potential)
     fnames = os.listdir(path=d)
     fnames2 = list(filter(lambda k: "atom" in k, fnames))
     for f in fnames2:
         df = pd.read_csv(d + "/" + f)
         ax.plot(df['x'], df['y'], color='black')
-    ax.set_ylim([-1, 20])
-    ax.axis('equal')
-    ax.set_xlim([-200, 200])
+    ax.set_ylim([-5, 20])
+    ax.set_xlim([-80, 80])
     ax.set_title("Atom potential and trajectory")
     fig.savefig(d + "/many_trajectories_rust.pdf", bbox_inches="tight")
 

@@ -13,3 +13,4 @@ crate-type = ["dylib"]
 [dependencies]
 nalgebra = "0.20"
 splines = "1.0.0"
+rayon = "1.1"

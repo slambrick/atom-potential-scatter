@@ -1,8 +1,9 @@
 #![crate_name = "atom_potential_scatter"]
 
 extern crate nalgebra as na;
+extern crate rayon;
 
-use na::{Vector4, Matrix4, Vector2};
+use na::{Vector4, Matrix4};
 use core::f64::consts::PI;
 use std::slice;
 use std::fs::OpenOptions;
@@ -10,6 +11,7 @@ use std::io::prelude::*;
 use std::str;
 use std::convert::AsMut;
 use splines::{Interpolation, Key, Spline};
+use rayon::prelude::*;
 
 /// Constans used by the R-K-F integration method.
 /// These value fill up the Butcher tableau
@@ -424,8 +426,7 @@ fn run_particle(init_q: Vector4<f64>, sim_params: &SimParam, record_atom: bool) 
 
 /// Saves the provided position and velocity vectors to the provided file name
 /// as comma delimated text files.
-fn save_pos_vel(pos: &[Vector2<f64>], vel: &[Vector2<f64>], f_name: &str) {
-    assert!(pos.len() == vel.len());
+fn save_pos_vel(q: &[Vector4<f64>], f_name: &str) {
     let mut file = OpenOptions::new()
             .write(true)
             .create(true)
@@ -434,9 +435,9 @@ fn save_pos_vel(pos: &[Vector2<f64>], vel: &[Vector2<f64>], f_name: &str) {
             .unwrap();
     writeln!(file, "atom,,x,y,v_x,v_y").unwrap();
     
-    for i in 0..pos.len() {
-        let line = format!("{},{},{},{},{}", i, pos[i][0], pos[i][1], vel[i][0], 
-                           vel[i][1]);
+    
+    for at in q {
+        let line = format!("{},{},{},{}", at[0], at[1], at[2], at[3]);
         writeln!(file, "{}", line).unwrap();
     }
 }
@@ -453,30 +454,25 @@ fn compose_save_name(fname: &str, i: usize) -> String {
     save_name
 }
 
-/// Runs the simulation on n atoms with the given list of starting conditions
-fn run_n_particle(n_atom: usize, record: usize, sim_params: &SimParam, 
-        fname: &str, init_q: Vec<Vector4<f64>>) -> (Vec<Vector2<f64>>, Vec<Vector2<f64>>) {
-    // Data structures for all final positions and direction
-    let mut final_pos =  vec![Vector2::new(0.0,0.0); n_atom];
-    let mut final_v = vec![Vector2::new(0.0,0.0); n_atom];
-    
-    for i in 1..n_atom {
-        let record_atom = i % record == 0;
-        
-        let he_atom = run_particle(init_q[i], sim_params, record_atom);
-        // Only save some of the trajectories atoms
-        if record_atom {
-            let save_name = compose_save_name(fname, i);
-            he_atom.write_trajectory(&save_name, sim_params.h);
-        }
-        
-        final_pos[i][0] = he_atom.q_current[0];
-        final_pos[i][1] = he_atom.q_current[1];
-        final_v[i][0] = he_atom.q_current[2];
-        final_v[i][1] = he_atom.q_current[3];
+fn run_it(q_init: Vector4<f64>, i: usize, record: usize, fname: &str, sim_params: &SimParam) -> Vector4<f64> {
+    let record_atom = i % record == 0;
+    let he_atom = run_particle(q_init, sim_params, record_atom);
+    // Only save some of the trajectories atoms
+    if record_atom {
+        let save_name = compose_save_name(fname, i);
+        he_atom.write_trajectory(&save_name, sim_params.h);
     }
     
-    (final_pos, final_v)
+    he_atom.q_current
+}
+
+/// Runs the simulation on n atoms with the given list of starting conditions
+fn run_n_particle(record: usize, sim_params: &SimParam, fname: &str, init_q: Vec<Vector4<f64>>) -> Vec<Vector4<f64>> {
+    // Data structures for all final positions and direction
+    //let mut final_q =  vec![Vector4::new(0.0,0.0,0.0,0.0); n_atom];
+    
+    let q_iter = init_q.into_par_iter().enumerate().map(|(i, x)| run_it(x, i, record, fname, sim_params));
+    q_iter.collect()
 }
 
 /// Takes 4 slices and composes them into a Vec of 4-Vectors
@@ -581,13 +577,12 @@ pub unsafe extern fn multiple_particle(xs: *const f64, ys: *const f64, vxs: *con
     };
     
     let init_q = compose_vector4(x, y, vx, vy);
-    let (final_pos, final_v) = run_n_particle(n, record as usize, &sim_params, 
-        &fname.to_string(), init_q);
+    let final_q = run_n_particle(record as usize, &sim_params, &fname.to_string(), init_q);
     
     // Save all final positions and directions
     let mut final_fname: String = fname.to_string();
     final_fname.push_str("/final_states.csv");
-    save_pos_vel(&final_pos, &final_v, &final_fname);
+    save_pos_vel(&final_q, &final_fname);
 }
 
 #[no_mangle]
