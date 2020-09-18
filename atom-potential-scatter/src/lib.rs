@@ -112,10 +112,10 @@ fn morse(x: f64, y: f64, p: &Potential) -> f64 {
 /// TODO: this
 fn diff_at_point(x: f64, spl: &Spline<f64,f64>) -> f64 {
     let epsilon: f64 = 0.01;
-    let dy = match spl.clamped_sample(x) {
+    let dy = match spl.clamped_sample(x + 0.5*epsilon) {
         Some(val) => val,
         None      => f64::NAN
-    } - match spl.clamped_sample(x) {
+    } - match spl.clamped_sample(x - 0.5*epsilon) {
         Some(val) => val,
         None      => f64::NAN
     };
@@ -283,14 +283,14 @@ impl Atom {
     /// Creates a new atom with the given starting conditions and vectors for
     /// recording its trajectory of the given length and sets up recording of
     /// the error if we are using R-K-F.
-    fn new(q: Vector4<f64>, m_e: usize, record_error: bool) -> Self {
+    fn new(q: Vector4<f64>, m: usize, record_error: bool) -> Self {
         let mut at: Atom = Default::default();
         at.q_current = q;
-        if m_e != 0 {
-            at.q_history = vec![at.error_current; m_e];
+        if m != 0 {
+            at.q_history = vec![at.error_current; m];
             if record_error {
                 at.record_error = true;
-                at.error_history = vec![at.error_current; m_e];
+                at.error_history = vec![at.error_current; m];
             }
             at.history = true;
         }
@@ -414,8 +414,7 @@ fn run_particle(init_q: Vector4<f64>, sim_params: &SimParam, record_atom: bool) 
     if !record_error {
         assert!(sim_params.method.eq(&String::from("Classic")));
     }
-    let m_e = if record_error {m} else {0};
-    let mut he = Atom::new(init_q, m_e, record_error);
+    let mut he = Atom::new(init_q, m, record_error);
     
     if he.history {
         he.add_record(0);
@@ -433,7 +432,7 @@ fn save_pos_vel(q: &[Vector4<f64>], f_name: &str) {
             .truncate(true)
             .open(f_name)
             .unwrap();
-    writeln!(file, "atom,,x,y,v_x,v_y").unwrap();
+    writeln!(file, "x,y,v_x,v_y").unwrap();
     
     
     for at in q {
@@ -468,9 +467,6 @@ fn run_it(q_init: Vector4<f64>, i: usize, record: usize, fname: &str, sim_params
 
 /// Runs the simulation on n atoms with the given list of starting conditions
 fn run_n_particle(record: usize, sim_params: &SimParam, fname: &str, init_q: Vec<Vector4<f64>>) -> Vec<Vector4<f64>> {
-    // Data structures for all final positions and direction
-    //let mut final_q =  vec![Vector4::new(0.0,0.0,0.0,0.0); n_atom];
-    
     let q_iter = init_q.into_par_iter().enumerate().map(|(i, x)| run_it(x, i, record, fname, sim_params));
     q_iter.collect()
 }
@@ -605,7 +601,6 @@ pub unsafe extern fn calc_potential(xs: *const f64, ys: *const f64, vs: *mut f64
     let param = if test_surf == 1 {
         Potential::gauss_potential(copy_into_array(p2))
     } else {
-        println!("Made it to rust!");
         assert!(!x_surf.is_null());
         let x_s = { slice::from_raw_parts(x_surf, n_surf as usize) };
         assert!(!y_surf.is_null());

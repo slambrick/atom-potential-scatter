@@ -14,6 +14,8 @@ from ctypes import c_double, c_char, c_uint64, POINTER
 import ctypes
 import numpy as np
 import os
+import matplotlib.pyplot as plt
+import matplotlib.cm as cm
 
 atom_scatter = ctypes.CDLL(("atom-potential-scatter/target/release/libatom_pot"
                             "ential_scatter.so"))
@@ -21,28 +23,148 @@ atom_scatter = ctypes.CDLL(("atom-potential-scatter/target/release/libatom_pot"
 DEFAULT_SURF = {'x': np.array([]), 'y': np.array([]), 'type': 'gauss'}
 
 
-def random_surf_gen_crude(h, Dx, lambd, s, N=1000):
-    Z = np.random.normal(0.0, s, N)
-    f = np.zeros(N)
-    for n in range(N):
-        ms = np.linspace(0, N-1, N)
-        f[n] = sum(Z * np.exp(-abs(n - ms)*Dx/lambd))
-    xs = np.linspace(0, Dx*(N-1), N)
-    return(h*f, xs)
+class Surf:
+    def __init__(self, h_RMS, Dx, corr_len, N):
+        if corr_len/Dx < 10:
+            raise ValueError(("The segment size Dx is not sufficently small "
+                              "compared to the correlation length"))
+        self.lambd = 0.5*corr_len**(2/3)
+        self.h = h_RMS*np.sqrt(np.tanh(Dx/self.lambd))
+        self.Dx = Dx
+        (self.f, self.x) = Surf.__random_surf_gen_core(self.h, self.Dx,
+                                                       self.lambd, 1, N)
+        self.h_RMS = h_RMS
+        self.corr_len = corr_len
+
+    def __random_surf_gen_core(h, Dx, lambd, s, N=10001):
+        """Core routine to generate a random surface. Arguments should be
+        chosen carefully. The number of points must be odd."""
+
+        if N % 2 != 1:
+            raise ValueError("Must be an odd number of points in the surface")
+        Z = np.random.normal(0.0, s, N)
+        ms = np.linspace(-round(N/2), round(N/2), N)
+        e = np.exp(-abs(ms)*Dx/lambd)
+        f = h*np.convolve(Z, e, 'same')
+        xs = ms*Dx
+        return(f, xs)
+
+    def plot_surf_properties(self):
+        fig = plt.figure()
+        ax = fig.add_axes([0, 0, 1.2, 0.35])
+        ax.plot(self.x, self.f)
+        ax.set_title('Generated surface profile')
+        ax.set_xlabel('x/nm')
+        ax.set_ylabel('y/nm')
+        ax.set_xlim([-self.Dx*5000, self.Dx*5000])
+
+        fig2 = plt.figure()
+        ax2 = fig2.add_axes([0, 0, 0.6, 0.6])
+        ax2.hist(self.f, density=True, label='Generated')
+        end = max(abs(self.f))
+        xx = np.linspace(-end, end, 501)
+        yy = 1/(np.sqrt(2*np.pi)*self.h_RMS) * np.exp(-xx**2/(2*self.h_RMS**2))
+        ax2.plot(xx, yy, label='Predicted')
+        ax2.set_xlabel('Heights/nm')
+        ax2.set_ylabel('Probability')
+        ax2.set_title('Height distribution')
+        ax2.legend(loc='lower right')
+
+        fig3 = plt.figure()
+        ax3 = fig3.add_axes([0, 0, 0.6, 0.6])
+        auto_corr = np.correlate(self.f, self.f, mode='same')
+        auto_corr = auto_corr/max(auto_corr)
+        corr_x = np.arange(-len(auto_corr)*self.Dx/2, len(auto_corr)*self.Dx/2,
+                           self.Dx)
+        ax3.plot(corr_x, auto_corr, label='Generated')
+        ax3.plot(corr_x, np.exp(-abs(corr_x)/self.lambd)*(1 + abs(corr_x)/self.lambd),
+                 label='Predicted')
+        ax3.set_xlabel('x/nm')
+        ax3.set_ylabel('Correleation')
+        ax3.set_xlim(0, 2*self.corr_len)
+        ax3.set_ylim(0, 1)
+        ax3.set_title('Autocorrelation function')
+        ax3.legend()
+
+        fig4 = plt.figure()
+        ax4 = fig4.add_axes([0, 0, 0.6, 0.6])
+        grad = np.diff(self.f)/self.Dx
+        ax4.hist(grad, density=True, label='Generated')
+        end = max(abs(grad))
+        xx = np.linspace(-end, end, 501)
+        yy = (self.lambd/(np.sqrt(2*np.pi)*self.h_RMS))*np.exp(-self.lambd**2 * xx**2/(2*self.h_RMS**2))
+        ax4.plot(xx, yy, label='Predicted')
+        ax4.set_xlabel('Gradients')
+        ax4.set_ylabel('Probability')
+        ax4.set_title('Gradient distribution')
+        ax4.legend(loc='lower right')
+
+        return([(fig, ax), (fig2, ax2), (fig3, ax3), (fig4, ax4)])
+
+    def as_dict(self):
+        return({'x': self.x, 'y': self.f, 'type': 'interpolate'})
+
+    def plot_potential(self, param):
+        fig1 = plt.figure()
+        ax1 = fig1.add_axes([0, 0, 1.2, 0.5])
+        ax1.plot(self.x, self.f)
+        ax1.set_xlim([-self.Dx*1000, self.Dx*1000])
+        ax1.set_xlabel('x/nm')
+        ax1.set_ylabel('y/nm')
+
+        xx = np.linspace(-80, 80, 401)
+        yy = np.linspace(-5, 30, 171)
+        g = np.meshgrid(xx, yy)
+        V = morse_potential(g[0].flatten(), g[1].flatten(), param,
+                            self.as_dict()).reshape((171, 401))
+        fig2 = plt.figure()
+        ax2 = fig2.add_axes([0, 0, 1.2, 0.5])
+        cs = ax2.contourf(g[0], g[1], V, cmap=cm.coolwarm,
+                          levels=np.linspace(-1, 1, 21), extend='max')
+        ax2.set_xlabel("x/nm")
+        ax2.set_ylabel("y/nm")
+        fig2.colorbar(cs, ax=ax2)
+        ax2.set_xlim([-self.Dx*1000, self.Dx*1000])
+        ax2.set_ylim([-param['Distance']*4, param['Width']*10])
+        ax2.set_title("Atom potential")
+        return([(fig1, ax1), (fig2, ax2)])
+
+    def save_surf(self, dir_name):
+        fname = dir_name + '/surface_used.csv'
+        fid = open(fname, 'w')
+        fid.write('Surface statistics:\n')
+        fid.write('h_RMS = ' + str(self.h_RMS) + '\n')
+        fid.write('correlation_length = ' + str(self.corr_len) + '\n')
+        fid.write('Surface generation parameters\n')
+        fid.write('h = ' + str(self.h) + '\n')
+        fid.write('Dx = ' + str(self.Dx) + '\n')
+        fid.write('lambda = ' + str(self.lambd) + '\n')
+        fid.write('Surface points in space:\n')
+        fid.write('x,y\n')
+        for x, y in zip(self.x, self.f):
+            fid.write('{},{}\n'.format(x, y))
+        fid.close()
 
 
-def random_surf_gen_core(h, Dx, lambd, s, N=10001):
-    """Core routine to generate a random surface. Arguments should be chosen
-    carefully. The number of points must be odd."""
+def save_potential(potential, dir_name):
+    fname = dir_name + '/potential_parameters.txt'
+    fid = open(fname, 'w')
+    fid.write('Well depth, De = ' + str(potential['Depth']) + '\n')
+    fid.write('Well displacment, re = ' + str(potential['Distance']) + '\n')
+    fid.write('Well width, a = ' + str(potential['Width']) + '\n')
+    fid.close()
 
-    if N % 2 != 1:
-        raise ValueError("Must be an odd number of points in the surface")
-    Z = np.random.normal(0.0, s, N)
-    ms = np.linspace(-round(N/2), round(N/2), N)
-    e = np.exp(-abs(ms)*Dx/lambd)
-    f = np.convolve(Z, e, 'same')
-    xs = ms*Dx
-    return(f, xs)
+
+def save_inital_condistion(conditions, dir_name):
+    fname = dir_name + '/initial_conditions.csv'
+    fid = open(fname, 'w')
+    fid.write('Number of atoms = {}\n'.format(conditions['n atom']))
+    fid.write('Time step = {}\n'.format(conditions['Time step']))
+    fid.write('Number of iterations = {}\n'.format(conditions['Iterations']))
+    fid.write('x,y,v_x,v_y\n')
+    for pos, v in zip(conditions['Position'], conditions['Velocity']):
+        fid.write('{},{},{},{}\n'.format(pos[0], pos[1], v[0], v[1]))
+    fid.close()
 
 
 def simulation_dir(name="just_a_test"):
@@ -158,7 +280,6 @@ def morse_potential(xs, ys, potential, surf=DEFAULT_SURF):
     surf_y = surf['y'].ctypes.data_as(POINTER(c_double)) if t else (c_double*0)(*[])
     test_surf = c_uint64(0) if t else c_uint64(1)
     surf_n = c_uint64(len(surf['x'])) if t else c_uint64(0)
-    print(test_surf)
 
     p = (c_double*3)(*[potential['Depth'], potential['Distance'],
                        potential['Width']])

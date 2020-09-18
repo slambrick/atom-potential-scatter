@@ -178,39 +178,96 @@ def plot_random_surface(surf, potential):
     return(fig, ax)
 
 
-def main():
+def test_surf_gen():
     # Generate a random surface
-    (f, x) = atom.random_surf_gen_core(1, 0.02, 2, 0.1, 10001)
-    surf = {'x': x, 'y': f, 'type': 'interpolate'}
-    
-    # Trace atom trajectories
-    n_atom = 101
-    x = np.linspace(-50, 50, n_atom)
-    y = np.repeat(15, n_atom)
-    init_pos = np.array([x, y])
-    init_v = np.repeat(np.array([[1.0], [-1.0]]), n_atom, axis=1)
-    dt = 0.02
-    it = 2*1800
-    fname = "test"
-    potential = {'Depth': 0.2, 'Distance': 0.5, 'Width': 1}
-    record = 2
-    start = time.time()
-    d = atom.run_many_particle(init_pos, init_v, dt, it, fname, potential,
-                               record, surf=surf, method="Fehlberg")
-    end = time.time()
-    print(end - start)
-    
+    h_RMS = 1
+    corr = 10
+    Dx = 0.02
+    surface = atom.Surf(h_RMS, Dx, corr, 100001)
+    lst_ax = surface.plot_surf_properties()
+    # TODO: make these all as one figure in python
+    lst_ax[0][0].savefig("surface_profile.pdf", bbox_inches="tight")
+    lst_ax[1][0].savefig("height_distribution.pdf", bbox_inches="tight")
+    lst_ax[2][0].savefig("correlation_function.pdf", bbox_inches="tight")
+    lst_ax[3][0].savefig("gradient_distribution.pdf", bbox_inches="tight")
+
+
+def potential_and_trajectory_plot(d, surf, potential, n_atom, record):
     # Plot the potential
-    (fig, ax) = plot_random_surface(surf, potential)
+    (fig, ax) = plot_random_surface(surf.as_dict(), potential)
     fnames = os.listdir(path=d)
     fnames2 = list(filter(lambda k: "atom" in k, fnames))
-    for f in fnames2:
-        df = pd.read_csv(d + "/" + f)
-        ax.plot(df['x'], df['y'], color='black')
+    # Add some of the trajectories
+    n_plot = round(n_atom/record)
+    skip = 1 if n_plot < 100 else round(n_plot/100)
+    for i, f in enumerate(fnames2):
+        if i % skip == 0:
+            df = pd.read_csv(d + "/" + f)
+            ax.plot(df['x'], df['y'], color='black')
     ax.set_ylim([-5, 20])
     ax.set_xlim([-80, 80])
     ax.set_title("Atom potential and trajectory")
     fig.savefig(d + "/many_trajectories_rust.pdf", bbox_inches="tight")
+
+
+def final_direction_plot(d, y_cutoff):
+    df = pd.read_csv(d + '/final_states.csv')
+    df_ended = df[np.logical_and(df['y'] > y_cutoff,
+                                 np.logical_not(np.isnan(df['y'])))]
+    n_missed = len(df['x']) - len(df_ended['x'])
+    df_ended['theta'] = np.arctan(df_ended['v_x']/df_ended['v_y'])*180/np.pi
+    print(n_missed)
+    fig = plt.figure()
+    ax = fig.add_axes([0, 0, 0.7, 0.7])
+    ax.hist(df_ended['theta'], density=True)
+    ax.set_xlim([-90, 90])
+    ax.set_xlabel(r'$\theta/^o$')
+    ax.set_ylabel('Probability')
+    fig.savefig(d + '/final_scattering_distribution.pdf', bbox_inches='tight')
+    return(df_ended)
+
+
+def test_random_scatter():
+    h_RMS = 0.05
+    corr = 10
+    Dx = 0.04
+    # Generate a random surface
+    surf = atom.Surf(h_RMS, Dx, corr, 10001)
+
+    # Trace atom trajectories
+    n_atom = 2001
+    x = np.linspace(-50, 50, n_atom)
+    y = np.repeat(15, n_atom)
+    init_angle = 20
+    speed = 1
+    init_pos = np.array([x, y])
+    v = speed*np.array([[np.sin(init_angle*np.pi/180)],
+                        [-np.cos(init_angle*np.pi/180)]])
+    init_v = np.repeat(v, n_atom, axis=1)
+    dt = 0.05
+    it = 900
+    fname = "roughness_investigation1_"
+    potential = {'Depth': 0.2, 'Distance': 0.5, 'Width': 1}
+    init_conditions = {'n atom': n_atom, 'Position': init_pos,
+                       'Velocity': init_v, 'Time step': dt, 'Iterations': it}
+    record = 1
+    start = time.time()
+    d = atom.run_many_particle(init_pos, init_v, dt, it, fname, potential,
+                               record, surf=surf.as_dict(), method="Fehlberg")
+    end = time.time()
+    print(end - start)
+    surf.save_surf(d)
+    atom.save_potential(potential, d)
+    atom.save_initial_conditions(init_conditions, d)
+    potential_and_trajectory_plot(d, surf, potential, n_atom, record)
+    final_direction_plot(d, 10.0)
+    print('Data is stored in: ', d)
+    return(d, surf, potential)
+
+
+def main():
+    test_random_scatter()
+
 
 if __name__ == "__main__":
     main()
