@@ -145,6 +145,12 @@ class Surf:
             fid.write('{},{}\n'.format(x, y))
         fid.close()
 
+    def load_surf(dir_name):
+        fname = dir_name + '/surface_used.csv'
+        fid = open(fname, 'r')
+        # TODO: load the surface from the text file
+        fid.close()
+
 
 def save_potential(potential, dir_name):
     fname = dir_name + '/potential_parameters.txt'
@@ -155,13 +161,14 @@ def save_potential(potential, dir_name):
     fid.close()
 
 
-def save_inital_condistion(conditions, dir_name):
+def save_inital_conditions(conditions, dir_name):
     fname = dir_name + '/initial_conditions.csv'
     fid = open(fname, 'w')
     fid.write('Number of atoms = {}\n'.format(conditions['n atom']))
     fid.write('Time step = {}\n'.format(conditions['Time step']))
     fid.write('Number of iterations = {}\n'.format(conditions['Iterations']))
     fid.write('x,y,v_x,v_y\n')
+    # TODO: does not save all the atoms
     for pos, v in zip(conditions['Position'], conditions['Velocity']):
         fid.write('{},{},{},{}\n'.format(pos[0], pos[1], v[0], v[1]))
     fid.close()

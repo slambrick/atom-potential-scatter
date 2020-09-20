@@ -210,16 +210,20 @@ def potential_and_trajectory_plot(d, surf, potential, n_atom, record):
     fig.savefig(d + "/many_trajectories_rust.pdf", bbox_inches="tight")
 
 
-def final_direction_plot(d, y_cutoff):
+def final_direction_plot(d, y_cutoff, potential, surf):
     df = pd.read_csv(d + '/final_states.csv')
-    df_ended = df[np.logical_and(df['y'] > y_cutoff,
-                                 np.logical_not(np.isnan(df['y'])))]
+    # Instead of the y threshold we could see if they have enough y-velocity to
+    # escape the potential?
+    pt = atom.morse_potential(np.array(df['x']), np.array(df['y']), potential, surf.as_dict())
+    ke_y = 0.5*df['v_y']**2
+    localised = ke_y > -pt
+    df_ended = df[np.logical_and(localised, np.logical_not(np.isnan(df['y'])))]
     n_missed = len(df['x']) - len(df_ended['x'])
     df_ended['theta'] = np.arctan(df_ended['v_x']/df_ended['v_y'])*180/np.pi
     print(n_missed)
     fig = plt.figure()
     ax = fig.add_axes([0, 0, 0.7, 0.7])
-    ax.hist(df_ended['theta'], density=True)
+    ax.hist(df_ended['theta'], bins=60, density=True)
     ax.set_xlim([-90, 90])
     ax.set_xlabel(r'$\theta/^o$')
     ax.set_ylabel('Probability')
@@ -228,25 +232,25 @@ def final_direction_plot(d, y_cutoff):
 
 
 def test_random_scatter():
-    h_RMS = 0.05
+    h_RMS = 0.5
     corr = 10
     Dx = 0.04
     # Generate a random surface
     surf = atom.Surf(h_RMS, Dx, corr, 10001)
 
     # Trace atom trajectories
-    n_atom = 2001
+    n_atom = 5001
     x = np.linspace(-50, 50, n_atom)
     y = np.repeat(15, n_atom)
-    init_angle = 20
+    init_angle = 40
     speed = 1
     init_pos = np.array([x, y])
     v = speed*np.array([[np.sin(init_angle*np.pi/180)],
                         [-np.cos(init_angle*np.pi/180)]])
     init_v = np.repeat(v, n_atom, axis=1)
-    dt = 0.05
-    it = 900
-    fname = "roughness_investigation1_"
+    dt = 0.1
+    it = 1500
+    fname = "something_fishy_"
     potential = {'Depth': 0.2, 'Distance': 0.5, 'Width': 1}
     init_conditions = {'n atom': n_atom, 'Position': init_pos,
                        'Velocity': init_v, 'Time step': dt, 'Iterations': it}
@@ -258,11 +262,18 @@ def test_random_scatter():
     print(end - start)
     surf.save_surf(d)
     atom.save_potential(potential, d)
-    atom.save_initial_conditions(init_conditions, d)
+    atom.save_inital_conditions(init_conditions, d)
     potential_and_trajectory_plot(d, surf, potential, n_atom, record)
-    final_direction_plot(d, 10.0)
+    final_direction_plot(d, 10.0, potential, surf)
     print('Data is stored in: ', d)
     return(d, surf, potential)
+
+
+#def run_plots_from_dir():
+    # Load the data and parameters from the directory
+    # TODO:
+    # Do plotting
+    # TODO:
 
 
 def main():
