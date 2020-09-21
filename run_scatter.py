@@ -236,7 +236,7 @@ def test_random_scatter():
     corr = 10
     Dx = 0.04
     # Generate a random surface
-    surf = atom.Surf(h_RMS, Dx, corr, 10001)
+    surf = atom.Surf.random_surf_gen(h_RMS, Dx, corr, 10001)
 
     # Trace atom trajectories
     n_atom = 5001
