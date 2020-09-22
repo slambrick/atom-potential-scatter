@@ -123,20 +123,18 @@ fn diff_at_point(x: f64, spl: &Spline<f64,f64>) -> f64 {
 }
 
 fn c(q: Vector4<f64>, p: &Potential) -> Vector4<f64> {
-    let x = q[0];
-    let y = q[1];
     let r = if p.gauss {
-        y - gaussian(x, 10.0, 60.0)
+        q[1] - gaussian(q[0], 10.0, 60.0)
     } else {
-        y - match p.surf.clamped_sample(x) {
+        q[1] - match p.surf.clamped_sample(q[0]) {
             Some(val) => val,
             None      => f64::NAN
         }
     };
     let dd = if p.gauss {
-        diff_at_point_gauss(x)
+        diff_at_point_gauss(q[0])
     } else {
-        diff_at_point(x, &p.surf)
+        diff_at_point(q[0], &p.surf)
     };
     let ax = 2.0*p.a*p.de*dd*( (-2.0*p.a*(r - p.re)).exp() - (-p.a*(r - p.re)).exp() );
     let ay = p.de*( -2.0*p.a*(-2.0*p.a*(r - p.re)).exp() + 2.0*p.a*(-p.a*(r - p.re)).exp() );

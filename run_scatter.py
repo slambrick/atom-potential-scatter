@@ -183,7 +183,7 @@ def test_surf_gen():
     h_RMS = 1
     corr = 10
     Dx = 0.02
-    surface = atom.Surf(h_RMS, Dx, corr, 100001)
+    surface = atom.RandSurf(h_RMS, Dx, corr, 100001)
     lst_ax = surface.plot_surf_properties()
     # TODO: make these all as one figure in python
     lst_ax[0][0].savefig("surface_profile.pdf", bbox_inches="tight")
@@ -214,7 +214,8 @@ def final_direction_plot(d, y_cutoff, potential, surf):
     df = pd.read_csv(d + '/final_states.csv')
     # Instead of the y threshold we could see if they have enough y-velocity to
     # escape the potential?
-    pt = atom.morse_potential(np.array(df['x']), np.array(df['y']), potential, surf.as_dict())
+    pt = atom.morse_potential(np.array(df['x']), np.array(df['y']), potential,
+                              surf)
     ke_y = 0.5*df['v_y']**2
     localised = ke_y > -pt
     df_ended = df[np.logical_and(localised, np.logical_not(np.isnan(df['y'])))]
@@ -236,7 +237,7 @@ def test_random_scatter():
     corr = 10
     Dx = 0.04
     # Generate a random surface
-    surf = atom.Surf.random_surf_gen(h_RMS, Dx, corr, 10001)
+    surf = atom.RandSurf.random_surf_gen(h_RMS, Dx, corr, 10001)
 
     # Trace atom trajectories
     n_atom = 5001

@@ -1,0 +1,4 @@
+# ignore files made by latex compilation
+*.pdf
+*.eps
+*.png

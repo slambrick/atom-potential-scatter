@@ -20,13 +20,14 @@ import matplotlib.cm as cm
 atom_scatter = ctypes.CDLL(("atom-potential-scatter/target/release/libatom_pot"
                             "ential_scatter.so"))
 
-DEFAULT_SURF = {'x': np.array([]), 'y': np.array([]), 'type': 'gauss'}
-
 
 # --------------------------- Helper functions ------------------------------ #
 
-def _parse_eq(s):
-    return(float(s.split("=")[1]))
+def _parse_eq(s, typ='float'):
+    if typ != 'float' and typ != 'int':
+        raise ValueError('Only float and int types supported')
+    num = float(s.split("=")[1]) if typ == 'float' else int(s.split("=")[1])
+    return(num)
 
 
 def _load_text(fname):
@@ -55,6 +56,18 @@ def _simulation_dir(name="just_a_test", nocreate=False):
     return(dir_name)
 
 
+def _format_num(num, frmt='short'):
+    s = "{0:.4f}".format(num) if frmt == 'long' else "{0:.2f}".format(num)
+    n = 7 if frmt == 'long' else 5
+    if s[0] != '-':
+        s = ' ' + s
+    if len(s) > n:
+        s = s[:n]
+    elif len(s) <= n:
+        s = ' '*(len(s)-n+1) + s
+    return(s)
+
+
 # --------------------------- Other small functions ------------------------- #
 
 def morse_1d(ys, potential):
@@ -71,28 +84,72 @@ def morse_1d(ys, potential):
 
 class Surf:
     def __init__(self):
+        self.Dx = 0.0
+        self._x = np.array([])
+        self._f = np.array([])
+        self.N_points = 0
+        self.__type = 'debug'
+
+    def set_surface(self, x, f, Dx):
+        if len(x) != len(f):
+            raise ValueError('x and y lengths are not the same')
+        if sum((abs(np.diff(x) - Dx)) < 1e-10) != len(x) - 1:
+            raise ValueError(('The given x values do not all have the '
+                              'expected spacing.'))
+        self._x = x
+        self._f = f
+        self.N_points = len(x)
+        self.Dx = Dx
+        self.__type = 'interpolate'
+
+    def get_points(self):
+        return(self._x, self._y)
+
+    def get_type(self):
+        return(self.__type)
+
+    def as_dict(self):
+        return({'x': self.x, 'y': self.f, 'type': 'interpolate'})
+
+
+DEFAULT_SURF = Surf()
+
+
+class RandSurf(Surf):
+    def __init__(self):
+        super().__init__()
         self.lambd = 0.0
         self.h = 0.0
-        self.Dx = 0.0
-        self.f = np.array([])
-        self.x = np.array([])
         self.h_RMS = 0.0
         self.corr_len = 0.0
-        self.N_points = 0
 
-    def random_surf_gen(h_RMS, Dx, corr_len, N):
-        self = Surf()
+    def __repr__(self):
+        s = "Number of points in surface: {}\n".format(self.N_points)
+        s = s + "Point seperation: {}\n".format(self.Dx)
+        s = s + "RMS height: {}\n".format(self.h_RMS)
+        s = s + "Correlation length: {}\n".format(self.corr_len)
+        s = s + "First 5 points of the surface:\n      x,       y\n"
+        for i, (x, y) in enumerate(zip(self._x, self._f)):
+            s1 = _format_num(x, frmt='long')
+            s2 = _format_num(y, frmt='long')
+            s = s + s1[1:] + ',' + s2 + '\n'
+            if i == 4:
+                s = s + '...'
+                break
+        return(s)
+
+    def random_surf_gen(h_RMS, Dx, corr_len, N=10001):
+        self = RandSurf()
         if corr_len/Dx < 10:
             raise ValueError(("The segment size Dx is not sufficently small "
                               "compared to the correlation length"))
         self.lambd = 0.5*corr_len**(2/3)
         self.h = h_RMS*np.sqrt(np.tanh(Dx/self.lambd))
-        self.Dx = Dx
-        (self.f, self.x) = Surf.__random_surf_gen_core(self.h, self.Dx,
-                                                       self.lambd, 1, N)
+        f, x = RandSurf.__random_surf_gen_core(self.h, self.Dx,
+                                               self.lambd, 1, N)
+        self.set_surface(x, f, self.Dx)
         self.h_RMS = h_RMS
         self.corr_len = corr_len
-        self.N_points = N
         return(self)
 
     def __random_surf_gen_core(h, Dx, lambd, s, N=10001):
@@ -111,16 +168,18 @@ class Surf:
     def plot_surf_properties(self):
         fig = plt.figure()
         ax = fig.add_axes([0, 0, 1.2, 0.35])
-        ax.plot(self.x, self.f)
+        ax.plot(self._x, self._f)
         ax.set_title('Generated surface profile')
         ax.set_xlabel('x/nm')
         ax.set_ylabel('y/nm')
-        ax.set_xlim([-self.Dx*5000, self.Dx*5000])
+        lims = [-self.Dx*5000, self.Dx*5000] if self.N_points > 10000 \
+            else np.array([-1, 1])*self.Dx*round(self.N_points/2)
+        ax.set_xlim(lims)
 
         fig2 = plt.figure()
         ax2 = fig2.add_axes([0, 0, 0.6, 0.6])
-        ax2.hist(self.f, density=True, label='Generated')
-        end = max(abs(self.f))
+        ax2.hist(self._f, density=True, label='Generated')
+        end = max(abs(self._f))
         xx = np.linspace(-end, end, 501)
         yy = 1/(np.sqrt(2*np.pi)*self.h_RMS) * np.exp(-xx**2/(2*self.h_RMS**2))
         ax2.plot(xx, yy, label='Predicted')
@@ -131,7 +190,7 @@ class Surf:
 
         fig3 = plt.figure()
         ax3 = fig3.add_axes([0, 0, 0.6, 0.6])
-        auto_corr = np.correlate(self.f, self.f, mode='same')
+        auto_corr = np.correlate(self._f, self._f, mode='same')
         auto_corr = auto_corr/max(auto_corr)
         corr_x = np.arange(-len(auto_corr)*self.Dx/2, len(auto_corr)*self.Dx/2,
                            self.Dx)
@@ -147,7 +206,7 @@ class Surf:
 
         fig4 = plt.figure()
         ax4 = fig4.add_axes([0, 0, 0.6, 0.6])
-        grad = np.diff(self.f)/self.Dx
+        grad = np.diff(self._f)/self.Dx
         ax4.hist(grad, density=True, label='Generated')
         end = max(abs(grad))
         xx = np.linspace(-end, end, 501)
@@ -161,13 +220,10 @@ class Surf:
 
         return([(fig, ax), (fig2, ax2), (fig3, ax3), (fig4, ax4)])
 
-    def as_dict(self):
-        return({'x': self.x, 'y': self.f, 'type': 'interpolate'})
-
     def plot_potential(self, param):
         fig1 = plt.figure()
         ax1 = fig1.add_axes([0, 0, 1.2, 0.5])
-        ax1.plot(self.x, self.f)
+        ax1.plot(self._x, self._f)
         ax1.set_xlim([-self.Dx*1000, self.Dx*1000])
         ax1.set_xlabel('x/nm')
         ax1.set_ylabel('y/nm')
@@ -176,7 +232,7 @@ class Surf:
         yy = np.linspace(-5, 30, 171)
         g = np.meshgrid(xx, yy)
         V = morse_potential(g[0].flatten(), g[1].flatten(), param,
-                            self.as_dict()).reshape((171, 401))
+                            self).reshape((171, 401))
         fig2 = plt.figure()
         ax2 = fig2.add_axes([0, 0, 1.2, 0.5])
         cs = ax2.contourf(g[0], g[1], V, cmap=cm.coolwarm,
@@ -185,7 +241,7 @@ class Surf:
         ax2.set_ylabel("y/nm")
         fig2.colorbar(cs, ax=ax2)
         ax2.set_xlim([-self.Dx*1000, self.Dx*1000])
-        ax2.set_ylim([-param['Distance']*4, param['Width']*10])
+        ax2.set_ylim([-param.Displacemnet*4, param.Width*10])
         ax2.set_title("Atom potential")
         return([(fig1, ax1), (fig2, ax2)])
 
@@ -201,32 +257,38 @@ class Surf:
         fid.write('lambda = ' + str(self.lambd) + '\n')
         fid.write('Surface points in space:\n')
         fid.write('x,y\n')
-        for x, y in zip(self.x, self.f):
+        for x, y in zip(self._x, self._f):
             fid.write('{},{}\n'.format(x, y))
         fid.close()
 
     def load_surf(dir_name):
         fname = dir_name + '/surface_used.csv'
         content = _load_text(fname)
-        self = Surf()
+        self = RandSurf()
         self.h_RMS = _parse_eq(content[1])
         self.corr_len = _parse_eq(content[2])
         self.h = _parse_eq(content[4])
-        self.Dx = _parse_eq(content[5])
+        Dx = _parse_eq(content[5])
         self.lambd = _parse_eq(content[6])
         # Take the remainder of the lines and turn them into two lists of x,y
-        self.x = np.zeros(len(content) - 9)
-        self.f = np.zeros(len(content) - 9)
+        x = np.zeros(len(content) - 9)
+        f = np.zeros(len(content) - 9)
         for i, c in enumerate(content[9:]):
-            self.x[i], self.f[i] = tuple(map(float, c.split(",")))
+            x[i], f[i] = tuple(map(float, c.split(",")))
+        self.set_surface(x, f, Dx)
         return(self)
 
 
 class Potential:
+    """Contains the three parameters for the """
     def __init__(self, De=0.1, re=0.0, a=1.0):
         self.Depth = De
         self.Displacement = re
         self.Width = a
+
+    def __repr__(self):
+        return("Depth: {}\nDisplacment: {}nm\nWidth: {}nm".format(self.Depth,
+               self.Displacement, self.Width))
 
     def as_dict(self):
         return({'Depth': self.Depth, 'Width': self.Width, 'Displacement':
@@ -245,8 +307,8 @@ class Potential:
         fname = dir_name + '/potential_parameters.txt'
         content = _load_text(fname)
         self.Depth = _parse_eq(content[0])
-        self.Displacement = _parse_eq(content[0])
-        self.Width = _parse_eq(content[0])
+        self.Displacement = _parse_eq(content[1])
+        self.Width = _parse_eq(content[2])
         return(self)
 
 
@@ -258,13 +320,32 @@ class Conditions:
         self.position = np.zeros([2, self.n_atom])
         self.velocity = np.zeros([2, self.n_atom])
 
+    def __repr__(self):
+        s = "Number of atoms: {}\nTime step: {}\n".format(self.n_atom, self.Dt)
+        s = s + "Number of iterations: {}\n".format(self.n_it)
+        t1 = ("Initial conditions of the first 5 atoms:\n    x,     y,    vx,"
+              "    vy\n")
+        t2 = "Initial conditions of the atoms:\n    x,     y,    vx,    vy\n"
+        s = s + t1 if self.n_atom > 5 else s + t2
+        for i, (p, v) in enumerate(zip(self.position.transpose(),
+                                       self.velocity.transpose())):
+            s1 = _format_num(p[0])
+            s2 = _format_num(p[1])
+            s3 = _format_num(v[0])
+            s4 = _format_num(v[1])
+            s = s + s1[1:] + ',' + s2 + ',' + s3 + ',' + s4 + '\n'
+            if i == 4:
+                s = s + '...'
+                break
+        return(s)
+
     def set_velocity(self, init_angle, speed):
         v = speed*np.array([[np.sin(init_angle*np.pi/180)],
                            [-np.cos(init_angle*np.pi/180)]])
         self.velocity = np.repeat(v, self.n_atom, axis=1)
 
     def set_position(self, x_range, y):
-        xs = np.linspace(-x_range[0], x_range[1], self.n_atom)
+        xs = np.linspace(x_range[0], x_range[1], self.n_atom)
         ys = np.repeat(y, self.n_atom)
         self.position = np.array([xs, ys])
 
@@ -276,20 +357,20 @@ class Conditions:
         fid.write('Number of iterations = {}\n'.format(self.n_it))
         fid.write('x,y,v_x,v_y\n')
         # TODO: does not save all the atoms!!!!!
-        for pos, v in zip(self.position, self.velocity):
-            fid.write('{},{},{},{}\n'.format(pos[0], pos[1], v[0], v[1]))
+        for p, v in zip(self.position.transpose(), self.velocity.transpose()):
+            fid.write('{},{},{},{}\n'.format(p[0], p[1], v[0], v[1]))
         fid.close()
 
     def load_initial_conditions(dir_name):
         fname = dir_name + '/initial_conditions.csv'
         content = _load_text(fname)
-        n_atom = _parse_eq(content[0])
+        n_atom = _parse_eq(content[0], typ='int')
         dt = _parse_eq(content[1])
         n_it = _parse_eq(content[2])
-        # TODO: Set the loading of initial atom position
         self = Conditions(n_atom, dt, n_it)
-        self.position = 0.0  # TODO: set variable
-        self.velocity = 0.0  # TODO: set variable
+        for i, c in enumerate(content[4:]):
+            self.position[0][i], self.position[1][i], self.velocity[0][i], \
+                self.velocity[1][i] = tuple(map(float, c.split(",")))
         return(self)
 
 
@@ -310,8 +391,8 @@ def run_single_particle(init_pos, init_v, dt, it, sim_name, potential,
     surf_n = c_uint64(len(surf['x'])) if t else c_uint64(0)
 
     # Put the potential values into a C array of doubles
-    p = (c_double*3)(*[potential['Depth'], potential['Distance'],
-                       potential['Width']])
+    p = (c_double*3)(*[potential.Depth, potential.Displacement,
+                       potential.Width])
     # Put the initial conditions into C arrays of doubles
     x = c_double(init_pos[0])
     y = c_double(init_pos[1])
@@ -330,17 +411,16 @@ def run_single_particle(init_pos, init_v, dt, it, sim_name, potential,
 def run_many_particle(init_pos, init_v, dt, it, sim_name, potential, record,
                       surf=DEFAULT_SURF, method="Fehlberg"):
     # Put the surface information into the correct types
-    t = surf['type'] == 'interpolate'
-    surf_x = surf['x'].ctypes.data_as(POINTER(c_double)) if t \
-        else (c_double*0)(*[])
-    surf_y = surf['y'].ctypes.data_as(POINTER(c_double)) if t \
-        else (c_double*0)(*[])
+    t = surf.get_type() == 'interpolate'
+    x, y = surf.get_points()
+    surf_x = x.ctypes.data_as(POINTER(c_double)) if t else (c_double*0)(*[])
+    surf_y = y.ctypes.data_as(POINTER(c_double)) if t else (c_double*0)(*[])
     test_surf = c_uint64(0) if t else c_uint64(1)
     surf_n = c_uint64(len(surf['x'])) if t else c_uint64(0)
 
     # Put the potential values into a C array of doubles
-    p = (c_double*3)(*[potential['Depth'], potential['Distance'],
-                       potential['Width']])
+    p = (c_double*3)(*[potential.Depth, potential.Displacement,
+                       potential.Width])
     # Put the initial conditions into C arrays of doubles
     xs = init_pos[0, ].ctypes.data_as(POINTER(c_double))
     ys = init_pos[1, ].ctypes.data_as(POINTER(c_double))
@@ -366,16 +446,15 @@ def morse_potential(xs, ys, potential, surf=DEFAULT_SURF):
     evaluate it for the given numpy arrays of x,y."""
 
     # Put the surface information into the correct types
-    t = surf['type'] == 'interpolate'
-    surf_x = surf['x'].ctypes.data_as(POINTER(c_double)) if t \
-        else (c_double*0)(*[])
-    surf_y = surf['y'].ctypes.data_as(POINTER(c_double)) if t \
-        else (c_double*0)(*[])
+    t = surf.get_type() == 'interpolate'
+    x, y = surf.get_points()
+    surf_x = x.ctypes.data_as(POINTER(c_double)) if t else (c_double*0)(*[])
+    surf_y = y.ctypes.data_as(POINTER(c_double)) if t else (c_double*0)(*[])
     test_surf = c_uint64(0) if t else c_uint64(1)
     surf_n = c_uint64(len(surf['x'])) if t else c_uint64(0)
 
-    p = (c_double*3)(*[potential['Depth'], potential['Distance'],
-                       potential['Width']])
+    p = (c_double*3)(*[potential.Depth, potential.Displacement,
+                       potential.Width])
     n = xs.shape[0]
     i = xs.ctypes.data_as(POINTER(c_double))
     j = ys.ctypes.data_as(POINTER(c_double))
