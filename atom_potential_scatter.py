@@ -439,6 +439,7 @@ class Trajectory:
                 break
         return(s)
 
+    # NOTE: this is slow and should only be used for small numbers of trajectories
     def load_trajectory(dir_name, n_skip=10):
         d = "results/" + dir_name if dir_name[0:7] != "results" else dir_name
         with open(d) as csv_file:
