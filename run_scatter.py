@@ -6,10 +6,6 @@ Created on Fri Sep 11 12:36:01 2020
 @author: sam
 """
 
-# matplotlib import has loads of warnings
-import warnings
-warnings.filterwarnings("ignore")
-
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.cm as cm
@@ -17,6 +13,9 @@ import pandas as pd
 import os
 import atom_potential_scatter as atom
 import time
+import sys
+from PyQt5.QtWidgets import QApplication, QLabel, QMainWindow
+from PyQt5.QtCore import Qt
 
 from matplotlib import rcParams
 rcParams.update({'figure.autolayout': True})
@@ -24,23 +23,7 @@ rcParams.update({'figure.autolayout': True})
 plt.style.use('ggplot')
 
 
-def plot_potential_2d(potential):
-    xx = np.linspace(-50, 50, 401)
-    yy = np.linspace(-2, 30, 171)
-    g = np.meshgrid(xx, yy)
-    V = atom.morse_potential(g[0].flatten(), g[1].flatten(), potential).reshape((171, 401))
-    fig = plt.figure()
-    ax = fig.add_axes([0, 0, 2, 0.5])
-    cs = ax.contourf(g[0], g[1], V, cmap=cm.coolwarm,
-                     levels=np.linspace(-1, 1, 21), extend='max')
-    ax.set_xlabel("x")
-    ax.set_ylabel("y")
-    ax.axis('equal')
-    fig.colorbar(cs, ax=ax)
-    ax.set_title("Atom potential")
-    return(fig, ax)
-
-
+# Probably keep this one?
 def plot_potential_1d(potential):
     y = np.linspace(-1, 5, 501)
     V = atom.morse_1d(y, potential)
@@ -55,130 +38,91 @@ def plot_potential_1d(potential):
 
 
 def single_particle_test(fname):
-    potential = {'Depth': 0.5, 'Distance': 0.5, 'Width': 1}
-    if os.path.isfile(fname):
-        os.remove(fname)
-    dt = 0.01
-    it = 2800
-    atom.run_single_particle([-25, 15], [1, -1], dt, it, fname, potential)
-    df = pd.read_csv("can_I_tell_you_where_to_save.csv")
-    (fig, ax) = plot_potential_2d()
-    ax.plot(df['x'], df['y'], color='black')
-    ax.set_ylim([-1, 15])
-    ax.set_xlim([-40, 40])
-    ax.set_title("Atom potential and trajectory")
-    fig.savefig("one_trajectory.pdf", bbox_inches="tight")
+    """Runs a single particle through the test potential and checks the
+    conservation of energy for that trajectory."""
 
+    # Generate a random surface
+    h_RMS = 0.5
+    corr = 10
+    Dx = 0.05
+    surf = atom.Surf()#atom.RandSurf.random_surf_gen(h_RMS, Dx, corr, 5001)
 
+    # Set the parameters of the potential
+    De = 0.5
+    re = 1.0
+    a = 1.0
+    potential = atom.Potential(De, re, a)
+
+    init_pos = [-15, 12]
+    init_v = [1, -1]/np.sqrt(2)
+    dt = 0.001/5
+    it = 5800*5*5
+    d = atom.run_single_particle(init_pos, init_v, dt, it, fname, potential,
+                                 surf=surf)
+    traj = atom.Trajectory.load_trajectory(d + '/atom_trajectory.csv')
+    fig1, ax1 = atom.plot_potential_2d(surf, potential, figsize=[0, 0, 1.0, 0.6])
+    _, _ = traj.plot_traj(surf, potential, fig=fig1, ax=ax1)
+    ax1.set_ylim([-2, 15])
+    ax1.set_xlim([-25, 25])
+    fig2, ax2 = traj.error_plot()
+    fig3, ax3 = traj.conservation_of_energy(surf, potential)
+    dv = traj.energy_deviation(surf, potential)
+    fig4 = plt.figure()
+    ax4 = fig4.add_axes([0, 0, 1.0, 0.6])
+    ax4.plot(traj.times, dv)
+    ax4.set_xlabel('Time')
+    ax4.set_ylabel('% energy deviation')
+    print(traj.cuml_error())
+
+# TODO: update
 def many_single_particles_test(save_dir):
-    potential = {'Depth': 0.5, 'Distance': 0.5, 'Width': 1}
-    if not os.path.isdir(save_dir):
-        os.mkdir(save_dir)
-    init_v = [1, -1]
-    dt = 0.01
-    it = 3300
-    init_xs = np.linspace(-40, 10, 51)
-    y = 15
+    """Runs through many particles in the test potential and consideres the
+    conservation of energy of thise particles as a test case"""
+    surf = atom.Surf()#atom.RandSurf.random_surf_gen(h_RMS, Dx, corr, 5001)
 
+    # Set the parameters of the potential
+    De = 0.2
+    re = 1.0
+    a = 1.5
+    potential = atom.Potential(De, re, a)
+
+    init_xs = np.linspace(-40, 10, 2001)
+    init_y = 15
+    init_v = [1, -1]
+    dt = 0.002/5
+    it = 3500*5*5
+
+    save_dir = atom._simulation_dir(save_dir)
+    potential.save_potential(save_dir)
     # Run the simulations
+    start = time.time()
     fnames = []
     for i, x in enumerate(init_xs):
         fname = save_dir + '/' + 'particle' + str(i).zfill(1) + '.csv'
         if os.path.isfile(fname):
             os.remove(fname)
-        atom.run_single_particle([x, y], init_v, dt, it, fname, potential)
+        atom.run_single_particle([x, init_y], init_v, dt, it, fname, potential,
+                                 surf=surf, new_dir=False)
         fnames.append(fname)
-
-    (fig, ax) = plot_potential_2d(potential)
-
-    # Plot the trajectories
-    for f in fnames:
-        df = pd.read_csv(f)
-        ax.plot(df['x'], df['y'], color='black')
-    ax.set_ylim([-1, 20])
-    ax.set_xlim([-40, 40])
-    ax.set_title("Atom potential and trajectory")
-    fig.savefig("many_trajectories.pdf", bbox_inches="tight")
-
-
-def trajectory_plot(dir_name, potential):
-    d = "results/" + dir_name if dir_name[0:7] != "results" else dir_name
-    # Plot the trajectories
-    (fig, ax) = plot_potential_2d(potential)
-    fnames = os.listdir(path=d)
-    fnames2 = list(filter(lambda k: "atom" in k, fnames))
-    for f in fnames2:
-        df = pd.read_csv(dir_name + "/" + f)
-        ax.plot(df['x'], df['y'], color='black')
-    ax.set_ylim([-1, 20])
-    ax.set_xlim([-40, 40])
-    ax.set_title("Atom potential and trajectory")
-    fig.savefig(d + "/many_trajectories_rust.pdf", bbox_inches="tight")
-
-
-def error_plot(dir_name):
-    d = "results/" + dir_name if dir_name[0:7] != "results" else dir_name
-    fnames = os.listdir(path=d)
-    fnames2 = list(filter(lambda k: "atom" in k, fnames))
-    # Plot the errors
-    fig = plt.figure()
-    ax = fig.add_axes([0, 0, 1.2, 1])
-    for f in fnames2:
-        df = pd.read_csv(d + "/" + f)
-        ax.plot(df['time'], df['e_x'], color='blue')
-        ax.plot(df['time'], df['e_y'], color='red')
-    ax.legend(['Error in x'], ['Error in y'])
-
-    fig2 = plt.figure()
-    ax = fig2.add_axes([0, 0, 1.2, 1])
-    cuml_errors = np.zeros(len(fnames2))
-    for i, f in enumerate(fnames2):
-        df = pd.read_csv(d + "/" + f)
-        cuml_errors[i] = sum(df['e_x'])
-    ax.hist(cuml_errors)
-
-
-def multiple_particle_test():
-    n_atom = 10001
-    x = np.linspace(-40, 10, n_atom)
-    y = np.repeat(15, n_atom)
-    init_pos = np.array([x, y])
-    init_v = np.repeat(np.array([[1.0], [-1.0]]), n_atom, axis=1)
-    dt = 0.02
-    it = 1650
-    fname = "test"
-    potential = {'Depth': 0.8, 'Distance': 0.5, 'Width': 1}
-    record = 150
-    start = time.time()
-    d = atom.run_many_particle(init_pos, init_v, dt, it, fname, potential,
-                               record, method="Fehlberg")
     end = time.time()
-    print(end - start)
-    trajectory_plot(d, potential)
-    error_plot(d)
+    print(end- start)
 
-
-def plot_random_surface(surf, potential):
-    fig1 = plt.figure()
-    ax1 = fig1.add_axes([0, 0, 1, 0.5])
-    ax1.plot(surf['x'], surf['y'])
-
-    xx = np.linspace(-80, 80, 401)
-    yy = np.linspace(-5, 30, 171)
-    g = np.meshgrid(xx, yy)
-    V = atom.morse_potential(g[0].flatten(), g[1].flatten(), potential, surf).reshape((171, 401))
-    fig = plt.figure()
-    ax = fig.add_axes([0, 0, 3, 0.5])
-    cs = ax.contourf(g[0], g[1], V, cmap=cm.coolwarm,
-                     levels=np.linspace(-1, 1, 21), extend='max')
-    ax.set_xlabel("x")
-    ax.set_ylabel("y")
-    fig.colorbar(cs, ax=ax)
-    ax.set_title("Atom potential")
-    return(fig, ax)
+    (fig, ax) = atom.plot_potential_2d(surf, potential, figsize=[0, 0, 1.0, 0.6])
+    trajs = []
+    for f in fnames[::50]:
+        t = atom.Trajectory.load_trajectory(f)
+        trajs.append(t)
+        _, _ = t.plot_traj(surf, potential, fig=fig, ax=ax)
+    ax.set_xlim([-40, 40])
+    ax.set_ylim([-2, 20])
+    ax.set_title('')
+    fig.savefig(save_dir + '/trajectories_gayss_bump.eps', bbox_inches="tight")
+    return(trajs)
 
 
 def test_surf_gen():
+    """Tests surface generation and saves the resulting statistics plots."""
+
     # Generate a random surface
     h_RMS = 1
     corr = 10
@@ -192,9 +136,10 @@ def test_surf_gen():
     lst_ax[3][0].savefig("gradient_distribution.pdf", bbox_inches="tight")
 
 
+# TODO: move into the other module
 def potential_and_trajectory_plot(d, surf, potential, n_atom, record):
     # Plot the potential
-    (fig, ax) = plot_random_surface(surf.as_dict(), potential)
+    (fig, ax) = atom.plot_random_surface(surf, potential)
     fnames = os.listdir(path=d)
     fnames2 = list(filter(lambda k: "atom" in k, fnames))
     # Add some of the trajectories
@@ -210,76 +155,79 @@ def potential_and_trajectory_plot(d, surf, potential, n_atom, record):
     fig.savefig(d + "/many_trajectories_rust.pdf", bbox_inches="tight")
 
 
-def final_direction_plot(d, y_cutoff, potential, surf):
-    df = pd.read_csv(d + '/final_states.csv')
-    # Instead of the y threshold we could see if they have enough y-velocity to
-    # escape the potential?
-    pt = atom.morse_potential(np.array(df['x']), np.array(df['y']), potential,
-                              surf)
-    ke_y = 0.5*df['v_y']**2
-    localised = ke_y > -pt
-    df_ended = df[np.logical_and(localised, np.logical_not(np.isnan(df['y'])))]
-    n_missed = len(df['x']) - len(df_ended['x'])
-    df_ended['theta'] = np.arctan(df_ended['v_x']/df_ended['v_y'])*180/np.pi
-    print(n_missed)
-    fig = plt.figure()
-    ax = fig.add_axes([0, 0, 0.7, 0.7])
-    ax.hist(df_ended['theta'], bins=60, density=True)
-    ax.set_xlim([-90, 90])
-    ax.set_xlabel(r'$\theta/^o$')
-    ax.set_ylabel('Probability')
-    fig.savefig(d + '/final_scattering_distribution.pdf', bbox_inches='tight')
-    return(df_ended)
-
-
 def test_random_scatter():
+    """Interactive function for running a simulation of a rough surface."""
+
+    # Generate a random surface
     h_RMS = 0.5
     corr = 10
     Dx = 0.04
-    # Generate a random surface
     surf = atom.RandSurf.random_surf_gen(h_RMS, Dx, corr, 10001)
 
-    # Trace atom trajectories
-    n_atom = 5001
-    x = np.linspace(-50, 50, n_atom)
-    y = np.repeat(15, n_atom)
+    # Set the initial conditions
+    n_atom = 101
+    n_it = 30000
+    dt = 0.001
     init_angle = 40
     speed = 1
-    init_pos = np.array([x, y])
-    v = speed*np.array([[np.sin(init_angle*np.pi/180)],
-                        [-np.cos(init_angle*np.pi/180)]])
-    init_v = np.repeat(v, n_atom, axis=1)
-    dt = 0.1
-    it = 1500
-    fname = "something_fishy_"
-    potential = {'Depth': 0.2, 'Distance': 0.5, 'Width': 1}
-    init_conditions = {'n atom': n_atom, 'Position': init_pos,
-                       'Velocity': init_v, 'Time step': dt, 'Iterations': it}
-    record = 1
+    cond = atom.Conditions(n_atom, dt, n_it)
+    cond.set_position([-50, 50], 15)
+    cond.set_velocity(init_angle, speed)
+
+    # Set the parameters of the potential
+    De = 0.2
+    re = 0.0
+    a = 1.0
+    potential = atom.Potential(De, re, a)
+
+    # The name of the directory to save the parameters and results in
+    fname = "full_test"
+
+    # What proportion of trajectories should be saved (1 in every n)
+    n_record = 1
+
+    # Run the simulations
     start = time.time()
-    d = atom.run_many_particle(init_pos, init_v, dt, it, fname, potential,
-                               record, surf=surf.as_dict(), method="Fehlberg")
+    d = atom.run_many_particle(cond, fname, potential, n_record, surf, method="Classic")
     end = time.time()
     print(end - start)
+
+    # Save the parameters to the same file
     surf.save_surf(d)
-    atom.save_potential(potential, d)
-    atom.save_inital_conditions(init_conditions, d)
-    potential_and_trajectory_plot(d, surf, potential, n_atom, record)
-    final_direction_plot(d, 10.0, potential, surf)
+    potential.save_potential(d)
+    cond.save_inital_conditions(d)
+
+    # Produce plots of the potential and the trajectories
+    #potential_and_trajectory_plot(d, surf, potential, n_atom, n_record)
+    #final_direction_plot(d, 10.0, potential, surf)
     print('Data is stored in: ', d)
-    return(d, surf, potential)
+    return(d, surf, cond, potential)
 
 
-#def run_plots_from_dir():
-    # Load the data and parameters from the directory
-    # TODO:
-    # Do plotting
-    # TODO:
+# Subclass QMainWindow to customise your application's main window
+class MainWindow(QMainWindow):
+
+    def __init__(self, *args, **kwargs):
+        super(MainWindow, self).__init__(*args, **kwargs)
+
+        self.setWindowTitle("My Awesome App")
+
+        label = QLabel("This is a PyQt5 window!")
+
+        # The `Qt` namespace has a lot of attributes to customise
+        # widgets. See: http://doc.qt.io/qt-5/qt.html
+        label.setAlignment(Qt.AlignCenter)
+
+        # Set the central widget of the Window. Widget will expand
+        # to take up all the space in the window by default.
+        self.setCentralWidget(label)
 
 
 def main():
-    test_random_scatter()
+    app = QApplication(sys.argv)
+    window = MainWindow()
+    window.show()  # IMPORTANT!!!!! Windows are hidden by default.
+    app.exec_()
 
 
-if __name__ == "__main__":
-    main()
+ts = many_single_particles_test('test_bump')

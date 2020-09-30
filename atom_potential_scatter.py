@@ -14,6 +14,7 @@ from ctypes import c_double, c_char, c_uint64, POINTER
 import ctypes
 import numpy as np
 import os
+import csv
 import matplotlib.pyplot as plt
 import matplotlib.cm as cm
 
@@ -48,9 +49,9 @@ def _simulation_dir(name="just_a_test", nocreate=False):
         os.mkdir("results")
     past = list(map(lambda x: "results/" + x, os.listdir("results")))
     past_dirs = list(filter(os.path.isdir, past))
-    inds = list(map(int, list(map(lambda s: s[-4:], past_dirs))))
+    inds = list(map(int, list(map(lambda s: s[8:12], past_dirs))))
     ind = 1 if len(past_dirs) == 0 else max(inds) + 1
-    dir_name = "results/" + name + str(ind).zfill(4)
+    dir_name = "results/" + str(ind).zfill(4) + '-' + name
     if not os.path.isdir(dir_name) and not nocreate:
         os.mkdir(dir_name)
     return(dir_name)
@@ -66,6 +67,11 @@ def _format_num(num, frmt='short'):
     elif len(s) <= n:
         s = ' '*(len(s)-n+1) + s
     return(s)
+
+
+def _myround(x, direction="up", base=5):
+    tmp = np.ceil(x/base) if direction == "up" else np.floor(x/base)
+    return base*tmp
 
 
 # --------------------------- Other small functions ------------------------- #
@@ -90,6 +96,20 @@ class Surf:
         self.N_points = 0
         self.__type = 'debug'
 
+    def __repr__(self):
+        s = "Number of points in surface: {}\n".format(self.N_points)
+        s = s + "Point seperation: {}\n".format(self.Dx)
+        s = s + "Type of surface: {}\n".format(self.__type)
+        s = s + "First 5 points of the surface:\n      x,       y\n"
+        for i, (x, y) in enumerate(zip(self._x, self._f)):
+            s1 = _format_num(x, frmt='long')
+            s2 = _format_num(y, frmt='long')
+            s = s + s1[1:] + ',' + s2 + '\n'
+            if i == 4:
+                s = s + '...'
+                break
+        return(s)
+
     def set_surface(self, x, f, Dx):
         if len(x) != len(f):
             raise ValueError('x and y lengths are not the same')
@@ -103,13 +123,13 @@ class Surf:
         self.__type = 'interpolate'
 
     def get_points(self):
-        return(self._x, self._y)
+        return(self._x, self._f)
 
     def get_type(self):
         return(self.__type)
 
     def as_dict(self):
-        return({'x': self.x, 'y': self.f, 'type': 'interpolate'})
+        return({'x': self._x, 'y': self._f, 'type': 'interpolate'})
 
 
 DEFAULT_SURF = Surf()
@@ -145,9 +165,8 @@ class RandSurf(Surf):
                               "compared to the correlation length"))
         self.lambd = 0.5*corr_len**(2/3)
         self.h = h_RMS*np.sqrt(np.tanh(Dx/self.lambd))
-        f, x = RandSurf.__random_surf_gen_core(self.h, self.Dx,
-                                               self.lambd, 1, N)
-        self.set_surface(x, f, self.Dx)
+        f, x = RandSurf.__random_surf_gen_core(self.h, Dx, self.lambd, 1, N)
+        self.set_surface(x, f, Dx)
         self.h_RMS = h_RMS
         self.corr_len = corr_len
         return(self)
@@ -316,7 +335,7 @@ class Conditions:
     def __init__(self, n_atom=0, Dt=0.05, n_it=1000):
         self.n_atom = n_atom
         self.Dt = Dt
-        self.n_it = n_it
+        self.n_it = int(n_it)
         self.position = np.zeros([2, self.n_atom])
         self.velocity = np.zeros([2, self.n_atom])
 
@@ -356,7 +375,6 @@ class Conditions:
         fid.write('Time step = {}\n'.format(self.Dt))
         fid.write('Number of iterations = {}\n'.format(self.n_it))
         fid.write('x,y,v_x,v_y\n')
-        # TODO: does not save all the atoms!!!!!
         for p, v in zip(self.position.transpose(), self.velocity.transpose()):
             fid.write('{},{},{},{}\n'.format(p[0], p[1], v[0], v[1]))
         fid.close()
@@ -374,22 +392,225 @@ class Conditions:
         return(self)
 
 
+class Trajectory:
+    def __init__(self, n):
+        self.position = np.zeros([2, n])*float('nan')
+        self.velocity = np.zeros([2, n])*float('nan')
+        self.times = np.zeros(n)
+        self.Dt = 1.0
+        self.n_skip = 1
+        self.pos_error = np.zeros([2, n])*float('nan')
+        self.vel_error = np.zeros([2, n])*float('nan')
+        self.records = n
+
+    def __repr__(self):
+        s = "Number of records: {}\nTime step: {}\n".format(self.records,
+                                                            self.Dt)
+        s = s + "1 in x recorded x: {}\n".format(self.n_skip)
+        t1 = ("First 5 points in the trajectory:\n    t,     x,     y,    vx,"
+              "    vy\n")
+        t2 = "Trajectory of the atom:\n    t,     x,     y,    vx,    vy\n"
+        if not np.isnan(self.pos_error[0][0]):
+            s = s + "Error values present\n"
+        s = s + t1 if self.records > 5 else s + t2
+        for i, (t, p, v) in enumerate(zip(self.times,
+                                          self.position.transpose(),
+                                          self.velocity.transpose())):
+            s0 = _format_num(t)
+            s1 = _format_num(p[0])
+            s2 = _format_num(p[1])
+            s3 = _format_num(v[0])
+            s4 = _format_num(v[1])
+            s = s + s0[1:] + ',' + s1 + ',' + s2 + ',' + s3 + ',' + s4 + '\n'
+            if i == 4:
+                s = s + '...'
+                break
+        return(s)
+
+    def load_trajectory(dir_name, n_skip=10):
+        d = "results/" + dir_name if dir_name[0:7] != "results" else dir_name
+        with open(d) as csv_file:
+            csv_reader = csv.DictReader(csv_file, delimiter=',')
+            count = sum(1 for _ in csv_reader)
+            csv_file.seek(0)
+            csv_reader = csv.DictReader(csv_file, delimiter=',')
+            traj = Trajectory(count)
+            for i, row in enumerate(csv_reader):
+                traj.times[i] = row['time']
+                traj.position[0][i] = row['x']
+                traj.position[1][i] = row['y']
+                traj.velocity[0][i] = row['vx']
+                traj.velocity[1][i] = row['vy']
+                if "e_x" in row:
+                    traj.pos_error[0][i] = row['e_x']
+                    traj.pos_error[1][i] = row['e_y']
+                    traj.vel_error[0][i] = row['e_vx']
+                    traj.vel_error[1][i] = row['e_vy']
+        traj.n_skip = n_skip
+        traj.Dt = (traj.times[2] - traj.times[1])/n_skip
+        return(traj)
+
+    def energy(self, surf, potential, mass=1.0):
+        kin_energy = 0.5*mass*np.sum(self.velocity**2, 0)
+        pot_energy = morse_potential(self.position[0], self.position[1],
+                                     potential, surf)
+        return(kin_energy, pot_energy)
+
+    def energy_deviation(self, surf, potential, mass=1.0):
+        kin_energy, pot_energy = self.energy(surf, potential)
+        init_energy = kin_energy[0] + pot_energy[0]
+        deviation = 100*(kin_energy + pot_energy)/init_energy - 100
+        return(deviation)
+
+    def conservation_of_energy(self, surf, potential, mass=1.0):
+        kin_energy, pot_energy = self.energy(surf, potential)
+        fig = plt.figure()
+        ax = fig.add_axes([0, 0, 1.0, 0.7])
+        ax.plot(self.times, kin_energy, label='Kinetic energy')
+        ax.plot(self.times, pot_energy, label='Potential energy')
+        ax.plot(self.times, kin_energy + pot_energy, label='Total energy')
+        ax.legend()
+        ax.set_xlabel('Time')
+        ax.set_ylabel('Energy')
+        return(fig, ax)
+
+    def plot_traj(self, surf, potential, fig=None, ax=None):
+        if ax is None:
+            fig, ax = plot_potential_2d(surf, potential,
+                                        figsize=[0, 0, 1.0, 0.6])
+        ax.plot(self.position[0], self.position[1], color='black')
+        m1 = _myround(min(self.position[0]), direction="down")
+        m2 = _myround(max(self.position[0]), direction="up")
+        ax.set_xlim(m1, m2)
+        ax.set_ylim(-5, _myround(max(self.position[1])))
+        return(fig, ax)
+
+    def error_plot(self, fig=None, ax=None):
+        if ax is None:
+            fig = plt.figure()
+            ax = fig.add_axes([0, 0, 1.0, 0.6])
+        ax.plot(self.times, self.pos_error[0], color='blue', label='x')
+        ax.plot(self.times, self.pos_error[1], color='red', label='y')
+        ax.plot(self.times, self.vel_error[0], color='green', label='vx')
+        ax.plot(self.times, self.vel_error[1], color='black', label='vy')
+        ax.legend()
+        return(fig, ax)
+
+    def cuml_error(self):
+        return({'x': np.sum(self.pos_error[0]),
+                'y': np.sum(self.pos_error[1]),
+                'vx': np.sum(self.vel_error[0]),
+                'vy': np.sum(self.vel_error[1])})
+
+
+class FinalStates:
+    def __init__(self, n):
+        self.position = np.zeros([2, n])*float('nan')
+        self.velocity = np.zeros([2, n])*float('nan')
+        self.n_atom = n
+        self.n_bound = 0
+        self.beyond_surf = 0
+        self.state_of_atom = np.array(['']*n)
+
+    def __repr(self):
+        print("print the final states")
+
+    def load_states(dir_name, surf, potential):
+        d = "results/" + dir_name if dir_name[0:7] != "results" else dir_name
+        with open(d) as csv_file:
+            csv_reader = csv.DictReader(csv_file, delimiter=',')
+            count = sum(1 for _ in csv_reader)
+            csv_file.seek(0)
+            csv_reader = csv.DictReader(csv_file, delimiter=',')
+            states = FinalStates(count)
+            for i, row in enumerate(csv_reader):
+                states.position[0][i] = row['x']
+                states.position[1][i] = row['y']
+                states.velocity[0][i] = row['vx']
+                states.velocity[1][i] = row['vy']
+                states.state_of_atom[i] = 'beyond' if np.isnan(row['x']) \
+                    else 'ok'
+        states.beyond_surf = np.sum(states.state_of_atom == 'beyond')
+        states.filter_escaped(surf, potential)
+        return(states)
+
+    def filter_escaped(self, surf, potential):
+        pt = morse_potential(self.position[0], self.position[1], potential,
+                             surf)
+        ke_y = 0.5*self.velocity[1]**2
+        localised = ke_y > -pt
+        self.state_of_atom[localised] = 'bound'
+        self.n_bound = sum(localised)
+
+    def get_escaped(self):
+        ind = self.state_of_atom == 'ok'
+        pos = self.position[ind]
+        vel = self.velocity[ind]
+        return(pos, vel)
+
+    def final_direction_plot(self):
+        _, vel = self.get_escaped()
+        theta = np.arctan(vel[0]/vel[1])*180/np.pi
+        fig = plt.figure()
+        ax = fig.add_axes([0, 0, 0.7, 0.7])
+        ax.hist(theta, bins=36, density=True)
+        ax.set_xlim([-90, 90])
+        ax.set_xlabel(r'$\theta/^o$')
+        ax.set_ylabel('Probability')
+        return(fig, ax)
+
+
+# --------------------------- Display functions ----------------------------- #
+
+def plot_potential_2d(surf, potential, ax=None, figsize=[0, 0, 2, 0.5]):
+    xx = np.linspace(-80, 80, 401)
+    yy = np.linspace(-5, 30, 171)
+    g = np.meshgrid(xx, yy)
+    V = morse_potential(g[0].flatten(), g[1].flatten(), potential,
+                        surf).reshape((171, 401))
+    if ax is None:
+        fig = plt.figure()
+        ax = fig.add_axes(figsize)
+    cs = ax.contourf(g[0], g[1], V, cmap=cm.coolwarm,
+                     levels=np.linspace(-1, 1, 21), extend='max')
+    ax.set_xlabel("x")
+    ax.set_ylabel("y")
+    fig.colorbar(cs, ax=ax)
+    ax.set_title("Atom potential")
+    return(fig, ax)
+
+
+# def trajectory_plot(dir_name, surf, potential):
+#    d = "results/" + dir_name if dir_name[0:7] != "results" else dir_name
+#    # Plot the trajectories
+#    (fig, ax) = plot_potential_2d(surf, potential)
+#    fnames = os.listdir(path=d)
+#    fnames2 = list(filter(lambda k: "atom" in k, fnames))
+#    for f in fnames2:
+#        t = Trajectory.load_trajectory(f)
+#        t.plot_traj(ax=ax)
+#    ax.set_ylim([-1, 20])
+#    ax.set_xlim([-40, 40])
+#    ax.set_title("Atom potential and trajectory")
+#    fig.savefig(d + "/many_trajectories_rust.pdf", bbox_inches="tight")
+#
+
 # --------------------------- Interface functions --------------------------- #
 
 def run_single_particle(init_pos, init_v, dt, it, sim_name, potential,
-                        surf=DEFAULT_SURF, method="Fehlberg"):
+                        surf=DEFAULT_SURF, method="Fehlberg", new_dir=True):
     """Runs a single particle with the specified initial conditions through the
     potential for a given number of iteration with the given timestep."""
 
     # Put the surface information into the correct types
-    t = surf['type'] == 'interpolate'
-    surf_x = surf['x'].ctypes.data_as(POINTER(c_double)) if t \
+    xs, ys = surf.get_points()
+    t = surf.get_type() == 'interpolate'
+    surf_x = xs.ctypes.data_as(POINTER(c_double)) if t \
         else (c_double*0)(*[])
-    surf_y = surf['y'].ctypes.data_as(POINTER(c_double)) if t \
+    surf_y = ys.ctypes.data_as(POINTER(c_double)) if t \
         else (c_double*0)(*[])
     test_surf = c_uint64(0) if t else c_uint64(1)
-    surf_n = c_uint64(len(surf['x'])) if t else c_uint64(0)
-
+    surf_n = c_uint64(surf.N_points) if t else c_uint64(0)
     # Put the potential values into a C array of doubles
     p = (c_double*3)(*[potential.Depth, potential.Displacement,
                        potential.Width])
@@ -400,15 +621,16 @@ def run_single_particle(init_pos, init_v, dt, it, sim_name, potential,
     vy = c_double(init_v[1])
 
     # Put the directory name and integration method into a C array of chars
-    d = _simulation_dir(sim_name)
+    d = _simulation_dir(sim_name) + '/atom_traajectory.csv' if new_dir else sim_name
     arr = (c_char*len(d))(*d.encode('ascii'))
     mth = (c_char*len(method))(*method.encode('ascii'))
     atom_scatter.single_particle(x, y, vx, vy, c_double(dt), c_uint64(it), arr,
                                  c_uint64(len(d)), p, mth, c_uint64(len(mth)),
-                                 surf_x, surf_y, surf_n, test_surf)
+                                 surf_x, surf_y, surf_n, test_surf, c_uint64(1))
+    return(d)
 
 
-def run_many_particle(init_pos, init_v, dt, it, sim_name, potential, record,
+def run_many_particle(init_cond, sim_name, potential, record,
                       surf=DEFAULT_SURF, method="Fehlberg"):
     # Put the surface information into the correct types
     t = surf.get_type() == 'interpolate'
@@ -416,16 +638,16 @@ def run_many_particle(init_pos, init_v, dt, it, sim_name, potential, record,
     surf_x = x.ctypes.data_as(POINTER(c_double)) if t else (c_double*0)(*[])
     surf_y = y.ctypes.data_as(POINTER(c_double)) if t else (c_double*0)(*[])
     test_surf = c_uint64(0) if t else c_uint64(1)
-    surf_n = c_uint64(len(surf['x'])) if t else c_uint64(0)
+    surf_n = c_uint64(len(surf._x)) if t else c_uint64(0)
 
     # Put the potential values into a C array of doubles
     p = (c_double*3)(*[potential.Depth, potential.Displacement,
                        potential.Width])
     # Put the initial conditions into C arrays of doubles
-    xs = init_pos[0, ].ctypes.data_as(POINTER(c_double))
-    ys = init_pos[1, ].ctypes.data_as(POINTER(c_double))
-    vxs = init_v[0, ].ctypes.data_as(POINTER(c_double))
-    vys = init_v[1, ].ctypes.data_as(POINTER(c_double))
+    xs = init_cond.position[0, ].ctypes.data_as(POINTER(c_double))
+    ys = init_cond.position[1, ].ctypes.data_as(POINTER(c_double))
+    vxs = init_cond.velocity[0, ].ctypes.data_as(POINTER(c_double))
+    vys = init_cond.velocity[1, ].ctypes.data_as(POINTER(c_double))
 
     # Put the directory name and integration method into a C array of chars
     d = _simulation_dir(sim_name)
@@ -433,11 +655,11 @@ def run_many_particle(init_pos, init_v, dt, it, sim_name, potential, record,
     meth = (c_char*len(method))(*method.encode('ascii'))
 
     # Number of atoms we are simulating as a C int
-    n_atom = c_uint64(np.shape(init_pos)[1])
-    atom_scatter.multiple_particle(xs, ys, vxs, vys, n_atom, c_double(dt),
-                                   c_uint64(it), arr, c_uint64(len(d)), p,
+    n_atom = c_uint64(np.shape(init_cond.position)[1])
+    atom_scatter.multiple_particle(xs, ys, vxs, vys, n_atom, c_double(init_cond.Dt),
+                                   c_uint64(init_cond.n_it), arr, c_uint64(len(d)), p,
                                    c_uint64(record), meth, c_uint64(len(meth)),
-                                   surf_x, surf_y, surf_n, test_surf)
+                                   surf_x, surf_y, surf_n, test_surf, c_uint64(10))
     return(d)
 
 
@@ -451,7 +673,7 @@ def morse_potential(xs, ys, potential, surf=DEFAULT_SURF):
     surf_x = x.ctypes.data_as(POINTER(c_double)) if t else (c_double*0)(*[])
     surf_y = y.ctypes.data_as(POINTER(c_double)) if t else (c_double*0)(*[])
     test_surf = c_uint64(0) if t else c_uint64(1)
-    surf_n = c_uint64(len(surf['x'])) if t else c_uint64(0)
+    surf_n = c_uint64(surf.N_points) if t else c_uint64(0)
 
     p = (c_double*3)(*[potential.Depth, potential.Displacement,
                        potential.Width])
