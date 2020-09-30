@@ -86,6 +86,18 @@ def morse_1d(ys, potential):
     return(de*(np.exp(-2.0*a*(ys - re)) - 2.0*np.exp(-a*(ys - re))))
 
 
+def ye_from_De(De, a, he_energy=1.0):
+    return((1/a)*np.log(1 + np.sqrt(1 + 1/De)))
+
+
+# TODO: choose a value for the constant
+def choose_time_step(pot, const):
+    """From the parameters of a potential a timesstep is chosen such that the
+    product of the maximum gradient and the timestep are constant."""
+    e = pot.Width*pot.Displacement
+    Dt = const/(pot.Depth*pot.Width*( np.exp(e) - np.exp(2*e) ))
+    return(Dt)
+
 # --------------------------- Classes --------------------------------------- #
 
 class Surf:
@@ -497,10 +509,10 @@ class Trajectory:
         return(fig, ax)
 
     def cuml_error(self):
-        return({'x': np.sum(self.pos_error[0]),
-                'y': np.sum(self.pos_error[1]),
-                'vx': np.sum(self.vel_error[0]),
-                'vy': np.sum(self.vel_error[1])})
+        return({'x': np.sum(abs(self.pos_error[0])),
+                'y': np.sum(abs(self.pos_error[1])),
+                'vx': np.sum(abs(self.vel_error[0])),
+                'vy': np.sum(abs(self.vel_error[1]))})
 
 
 class FinalStates:

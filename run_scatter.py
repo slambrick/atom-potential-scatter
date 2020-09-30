@@ -77,13 +77,18 @@ def single_particle_test(fname):
 # TODO: update
 def many_single_particles_test(save_dir):
     """Runs through many particles in the test potential and consideres the
-    conservation of energy of thise particles as a test case"""
+    conservation of energy of thise particles as a test case. By default records
+    all iterations of all trajectories and is non-parallel. This is designed
+    for debuging and testing on medium scale simulations. Use run_many_particle
+    for doing full scale simulations to avoid excessive sized data files and
+    computation time."""
+
     surf = atom.Surf()#atom.RandSurf.random_surf_gen(h_RMS, Dx, corr, 5001)
 
     # Set the parameters of the potential
-    De = 0.2
-    re = 1.0
+    De = 0.001
     a = 1.5
+    re = atom.ye_from_De(De, a)
     potential = atom.Potential(De, re, a)
 
     init_xs = np.linspace(-40, 10, 2001)
@@ -230,4 +235,5 @@ def main():
     app.exec_()
 
 
-ts = many_single_particles_test('test_bump')
+if __name__ == '__main__':
+    ts = many_single_particles_test('test_bump_negligable_potential')
