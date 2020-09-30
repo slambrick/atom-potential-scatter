@@ -3,7 +3,7 @@
 extern crate nalgebra as na;
 extern crate rayon;
 
-use na::{Vector4, Matrix4};
+use na::{Vector4, Matrix4, Vector2};
 use core::f64::consts::PI;
 use std::slice;
 use std::fs::OpenOptions;
@@ -142,7 +142,7 @@ fn c(q: Vector4<f64>, p: &Potential) -> Vector4<f64> {
 }
 
 /// Performs a single iteration of the 'classic' Runge-Kutta method
-fn runge_kutter_classic(q: Vector4<f64>, h: f64, param: &Potential) -> Vector4<f64> {
+fn runge_kutter_classic(q: Vector4<f64>, h: f64, param: &Potential) -> (Vector4<f64>, Vector4<f64>, Vector2<f64>) {
     let b = Matrix4::new(0.0, 0.0, 1.0, 0.0, 
                          0.0, 0.0, 0.0, 1.0, 
                          0.0, 0.0, 0.0, 0.0, 
@@ -151,12 +151,13 @@ fn runge_kutter_classic(q: Vector4<f64>, h: f64, param: &Potential) -> Vector4<f
     let k2 = b*q + c(q + h*k1/2.0, param);
     let k3 = b*q + c(q + h*k2/2.0, param);
     let k4 = b*q + c(q + h*k3, param);
-    q + (1.0/6.0)*h*(k1 + 2.0*k2 + 2.0*k3 + k4)
+    let q_new = q + (1.0/6.0)*h*(k1 + 2.0*k2 + 2.0*k3 + k4);
+    (q_new, q_new, acceleration(q, param))
 }
 
 /// Performs a single iteration of the 'Runge-Kutta-Fehlberg' method. Returns
 /// a tuple containing the results from both the 5th and 4th order methods
-fn runge_kutter_fehlberg(q: Vector4<f64>, h: f64, param: &Potential) -> (Vector4<f64>, Vector4<f64>) {
+fn runge_kutter_fehlberg(q: Vector4<f64>, h: f64, param: &Potential) -> (Vector4<f64>, Vector4<f64>, Vector2<f64>) {
     let b = Matrix4::new(0.0, 0.0, 1.0, 0.0, 
                          0.0, 0.0, 0.0, 1.0, 
                          0.0, 0.0, 0.0, 0.0, 
@@ -170,10 +171,24 @@ fn runge_kutter_fehlberg(q: Vector4<f64>, h: f64, param: &Potential) -> (Vector4
     
     let q_5th = q + h*(k1*B1 + k3*B3 + k4*B4 + k5*B5 + k6*B6);
     let q_4th = q + h*(k1*B1_ + k3*B3_ + k4*B4_ + k5*B5_);
-    (q_5th, q_4th)
+    (q_5th, q_4th, acceleration(q, param))
 }
 
+fn acceleration(q: Vector4<f64>, param: &Potential) -> Vector2<f64> {
+    let c_tmp = c(q, param);
+    Vector2::new(c_tmp[2], c_tmp[3])
+}
 
+/// Performs a single iteration of the 'Verlet' method.
+fn verlet(q: Vector4<f64>, h: f64, param: &Potential, a_old: Vector2<f64>) -> (Vector4<f64>, Vector4<f64>, Vector2<f64>) {
+    let x_old = Vector2::new(q[0], q[1]);
+    let v_old = Vector2::new(q[2], q[3]);
+    let x_new = x_old + v_old*h + 0.5*a_old*h.powf(2.0);
+    let a_new = acceleration(q, param);
+    let v_new = v_old + 0.5*(a_old + a_new)*h;
+    let q_new = Vector4::new(x_new[0], x_new[1], v_new[0], v_new[1]);
+    (q_new, q_new, a_new)
+}
 
 //----------------------------------------------------------------------------//
 //----------------------------------------------------------------------------//
@@ -268,7 +283,8 @@ struct Atom {
     current_it: usize,
     history: bool,
     record_error: bool,
-    skip_record: usize
+    skip_record: usize,
+    current_acceleration: Vector2<f64>
 }
 
 impl Default for Atom {
@@ -281,7 +297,8 @@ impl Default for Atom {
             current_it: 0,
             history: false,
             skip_record: 10,
-            record_error: false
+            record_error: false,
+            current_acceleration: Vector2::new(0.0, 0.0)
         }
     }
 }
@@ -290,7 +307,8 @@ impl Atom {
     /// Creates a new atom with the given starting conditions and vectors for
     /// recording its trajectory of the given length and sets up recording of
     /// the error if we are using R-K-F.
-    fn new(q: Vector4<f64>, m: usize, record_error: bool, skip_record: usize) -> Self {
+    fn new(q: Vector4<f64>, m: usize, record_error: bool, skip_record: usize,
+            param: &Potential) -> Self {
         let mut at: Atom = Default::default();
         at.q_current = q;
         at.skip_record = skip_record;
@@ -302,6 +320,7 @@ impl Atom {
             }
             at.history = true;
         }
+        at.current_acceleration = acceleration(q, param);
         at
     }
     
@@ -325,14 +344,18 @@ impl Atom {
         }
     }
     
-    fn one_it(&mut self, h: f64, param: &Potential) {
-        let qs = if self.record_error {
-            runge_kutter_fehlberg(self.q_current, h, param)
-        } else {
-            (runge_kutter_classic(self.q_current, h, param), Vector4::new(0.0, 0.0, 0.0, 0.0))
+    fn one_it(&mut self, h: f64, param: &Potential, method: &str) {
+        let qs = match method {
+            "Classic"  => runge_kutter_classic(self.q_current, h, param),
+            "Fehlberg" => runge_kutter_fehlberg(self.q_current, h, param),
+            "Verlet"   => verlet(self.q_current, h, param, self.current_acceleration),
+            _          => panic!("Please provide an integration method that exists"),
         };
         self.q_current = qs.0;
-        self.error_current = qs.0 - qs.1;
+        self.current_acceleration = qs.2;
+        if self.record_error {
+            self.error_current = qs.0 - qs.1;
+        }
         self.current_it += 1;
         if self.current_it % self.skip_record == 0 && self.history {
             let ind = self.current_it/self.skip_record;
@@ -340,9 +363,9 @@ impl Atom {
         }
     }
     
-    fn run_n_iteration(&mut self, h: f64, n_it: usize, param: &Potential) {
+    fn run_n_iteration(&mut self, h: f64, n_it: usize, param: &Potential, method: &str) {
         for _i in 1..n_it {
-            self.one_it(h, param);
+            self.one_it(h, param, method);
         }
     }
     
@@ -354,10 +377,6 @@ impl Atom {
             .truncate(true)
             .open(f_name)
             .unwrap();
-        
-        //writeln!(file, "{}", format!("Timestep between iterations = {}", h)).unwrap();
-        // TODO: make this an input of some kind instead of hard coded
-        //writeln!(file, "1 in x steps are recorded, x = 10").unwrap();
         
         if self.record_error {
             writeln!(file, "time,x,y,vx,vy,e_x,e_y,e_vx,e_vy").unwrap();
@@ -433,14 +452,15 @@ fn run_particle(init_q: Vector4<f64>, sim_params: &SimParam, record_atom: bool) 
     let m = if record_atom {((sim_params.n_it as f64)/(sim_params.skip_record as f64)).round() as usize} else {0};
     let record_error =  sim_params.method.eq(&String::from("Fehlberg"));
     if !record_error {
-        assert!(sim_params.method.eq(&String::from("Classic")));
+        assert!(sim_params.method.eq(&String::from("Classic")) ||
+            sim_params.method.eq(&String::from("Verlet")));
     }
-    let mut he = Atom::new(init_q, m, record_error, sim_params.skip_record);
+    let mut he = Atom::new(init_q, m, record_error, sim_params.skip_record, &sim_params.param);
     
     if he.history {
         he.add_record(0);
     }
-    he.run_n_iteration(sim_params.h, sim_params.n_it, &sim_params.param);
+    he.run_n_iteration(sim_params.h, sim_params.n_it, &sim_params.param, &sim_params.method);
     he
 }
 
