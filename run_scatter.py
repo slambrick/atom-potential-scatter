@@ -55,11 +55,11 @@ def single_particle_test(fname):
 
     init_pos = [-15, 12]
     init_v = [1, -1]/np.sqrt(2)
-    dt = 0.001/5
-    it = 5800*5*5
+    dt = 0.001
+    it = 5800*5
     d = atom.run_single_particle(init_pos, init_v, dt, it, fname, potential,
                                  surf=surf)
-    traj = atom.Trajectory.load_trajectory(d + '/atom_trajectory.csv')
+    traj = atom.Trajectory.load_trajectory(d)
     fig1, ax1 = atom.plot_potential_2d(surf, potential, figsize=[0, 0, 1.0, 0.6])
     _, _ = traj.plot_traj(surf, potential, fig=fig1, ax=ax1)
     ax1.set_ylim([-2, 15])
@@ -236,4 +236,4 @@ def main():
 
 
 if __name__ == '__main__':
-    ts = many_single_particles_test('test_bump_negligable_potential')
+    ts = single_particle_test('verlet_method')
