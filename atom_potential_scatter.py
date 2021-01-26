@@ -80,9 +80,9 @@ def morse_1d(ys, potential):
     """Calculates the morse potential for the given parameters and y
     position(s)"""
 
-    de = potential['Depth']
-    a = potential['Width']
-    re = potential['Distance']
+    de = potential.Depth
+    a = potential.Width
+    re = potential.Displacement
     return(de*(np.exp(-2.0*a*(ys - re)) - 2.0*np.exp(-a*(ys - re))))
 
 

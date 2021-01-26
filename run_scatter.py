@@ -125,6 +125,45 @@ def many_single_particles_test(save_dir):
     return(trajs)
 
 
+def many_partlce_test(save_dir):
+    surf = atom.Surf()#atom.RandSurf.random_surf_gen(h_RMS, Dx, corr, 5001)
+
+    # Set the parameters of the potential
+    De = 0.001
+    a = 1.5
+    re = atom.ye_from_De(De, a)
+    potential = atom.Potential(De, re, a)
+
+    # Set the initial conditions
+    n_atom = 1001
+    it = 3500*5*5
+    dt = 0.002/5
+    init_angle = 40
+    speed = 1
+    cond = atom.Conditions(n_atom, dt, it)
+    cond.set_position([-50, 50], 15)
+    cond.set_velocity(init_angle, speed)
+
+    # What proportion of trajectories should be saved (1 in every n)
+    n_record = 10
+
+    # Run the simulations
+    start = time.time()
+    d = atom.run_many_particle(cond, save_dir, potential, n_record, surf,
+                               method="Verlet")
+    end = time.time()
+    print(end - start)
+
+    # Save the parameters to the same file
+    potential.save_potential(d)
+    cond.save_inital_conditions(d)
+
+    # Produce plots of the potential and the trajectories
+    #potential_and_trajectory_plot(d, surf, potential, n_atom, n_record)
+    #final_direction_plot(d, 10.0, potential, surf)
+    print('Data is stored in: ', d)
+    return(d, surf, cond, potential)
+
 def test_surf_gen():
     """Tests surface generation and saves the resulting statistics plots."""
 

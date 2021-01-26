@@ -370,7 +370,7 @@ impl Atom {
     }
     
     fn write_trajectory(&self, f_name: &str, h: f64) {
-        println!("{}", f_name);
+        //println!("{}", f_name);
         let mut file = OpenOptions::new()
             .write(true)
             .create(true)
