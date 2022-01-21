@@ -48,7 +48,7 @@ def single_particle_test(fname):
     surf = atom.Surf()#atom.RandSurf.random_surf_gen(h_RMS, Dx, corr, 5001)
 
     # Set the parameters of the potential
-    De = 0.5
+    De = 0.2
     re = 1.0
     a = 1.0
     potential = atom.Potential(De, re, a)
@@ -83,15 +83,19 @@ def many_single_particles_test(save_dir):
     for doing full scale simulations to avoid excessive sized data files and
     computation time."""
 
-    surf = atom.Surf()#atom.RandSurf.random_surf_gen(h_RMS, Dx, corr, 5001)
+    h_RMS = 1
+    corr = 10
+    Dx = 0.02
+    surf = atom.RandSurf()
+    surf.random_surf_gen(h_RMS, Dx, corr, 5001)
 
     # Set the parameters of the potential
-    De = 0.001
-    a = 1.5
+    De = 0.5
+    a = 1
     re = atom.ye_from_De(De, a)
     potential = atom.Potential(De, re, a)
 
-    init_xs = np.linspace(-40, 10, 2001)
+    init_xs = np.linspace(-40, 10, 51)
     init_y = 15
     init_v = [1, -1]
     dt = 0.002/5
@@ -114,7 +118,7 @@ def many_single_particles_test(save_dir):
 
     (fig, ax) = atom.plot_potential_2d(surf, potential, figsize=[0, 0, 1.0, 0.6])
     trajs = []
-    for f in fnames[::50]:
+    for f in fnames:
         t = atom.Trajectory.load_trajectory(f)
         trajs.append(t)
         _, _ = t.plot_traj(surf, potential, fig=fig, ax=ax)
@@ -126,7 +130,12 @@ def many_single_particles_test(save_dir):
 
 
 def many_partlce_test(save_dir):
-    surf = atom.Surf()#atom.RandSurf.random_surf_gen(h_RMS, Dx, corr, 5001)
+    # Generate a random surface
+    h_RMS = 1
+    corr = 10
+    Dx = 0.02
+    surface = atom.RandSurf()
+    surface.random_surf_gen(h_RMS, Dx, corr, 5001)
 
     # Set the parameters of the potential
     De = 0.001
@@ -135,7 +144,7 @@ def many_partlce_test(save_dir):
     potential = atom.Potential(De, re, a)
 
     # Set the initial conditions
-    n_atom = 1001
+    n_atom = 101
     it = 3500*5*5
     dt = 0.002/5
     init_angle = 40
@@ -145,11 +154,11 @@ def many_partlce_test(save_dir):
     cond.set_velocity(init_angle, speed)
 
     # What proportion of trajectories should be saved (1 in every n)
-    n_record = 10
+    n_record = 1
 
     # Run the simulations
     start = time.time()
-    d = atom.run_many_particle(cond, save_dir, potential, n_record, surf,
+    d = atom.run_many_particle(cond, save_dir, potential, n_record, surface,
                                method="Verlet")
     end = time.time()
     print(end - start)
@@ -158,9 +167,26 @@ def many_partlce_test(save_dir):
     potential.save_potential(d)
     cond.save_inital_conditions(d)
 
+    fnames = []
+    for i in range(n_atom):
+        fname = d + '/' + 'atom' + str(i).zfill(8) + '.csv'
+        if os.path.isfile(fname):
+            os.remove(fname)
+        fnames.append(fname)
+    end = time.time()
+    print(end- start)
+
     # Produce plots of the potential and the trajectories
-    #potential_and_trajectory_plot(d, surf, potential, n_atom, n_record)
-    #final_direction_plot(d, 10.0, potential, surf)
+    (fig, ax) = atom.plot_potential_2d(surface, potential, figsize=[0, 0, 1.0, 0.6])
+    trajs = []
+    for f in fnames[::10]:
+        t = atom.Trajectory.load_trajectory(f)
+        trajs.append(t)
+        _, _ = t.plot_traj(surf, potential, fig=fig, ax=ax)
+    ax.set_xlim([-40, 40])
+    ax.set_ylim([-2, 20])
+    ax.set_title('')
+    final_direction_plot(d, 10.0, potential, surface)
     print('Data is stored in: ', d)
     return(d, surf, cond, potential)
 
@@ -171,7 +197,8 @@ def test_surf_gen():
     h_RMS = 1
     corr = 10
     Dx = 0.02
-    surface = atom.RandSurf(h_RMS, Dx, corr, 100001)
+    surface = atom.RandSurf()
+    surface.random_surf_gen(h_RMS, Dx, corr, 100001)
     lst_ax = surface.plot_surf_properties()
     # TODO: make these all as one figure in python
     lst_ax[0][0].savefig("surface_profile.pdf", bbox_inches="tight")
@@ -183,7 +210,7 @@ def test_surf_gen():
 # TODO: move into the other module
 def potential_and_trajectory_plot(d, surf, potential, n_atom, record):
     # Plot the potential
-    (fig, ax) = atom.plot_random_surface(surf, potential)
+    (fig, ax) = atom.plot_potential_2d(surf, potential)
     fnames = os.listdir(path=d)
     fnames2 = list(filter(lambda k: "atom" in k, fnames))
     # Add some of the trajectories
@@ -206,7 +233,8 @@ def test_random_scatter():
     h_RMS = 0.5
     corr = 10
     Dx = 0.04
-    surf = atom.RandSurf.random_surf_gen(h_RMS, Dx, corr, 10001)
+    surf = atom.RandSurf()
+    surf.random_surf_gen(h_RMS, Dx, corr, 1801)
 
     # Set the initial conditions
     n_atom = 101
@@ -219,7 +247,7 @@ def test_random_scatter():
     cond.set_velocity(init_angle, speed)
 
     # Set the parameters of the potential
-    De = 0.2
+    De = 0.5
     re = 0.0
     a = 1.0
     potential = atom.Potential(De, re, a)
@@ -232,7 +260,7 @@ def test_random_scatter():
 
     # Run the simulations
     start = time.time()
-    d = atom.run_many_particle(cond, fname, potential, n_record, surf, method="Classic")
+    d = atom.run_many_particle(cond, fname, potential, n_record, surf, method="Verlet")
     end = time.time()
     print(end - start)
 
@@ -241,8 +269,6 @@ def test_random_scatter():
     potential.save_potential(d)
     cond.save_inital_conditions(d)
 
-    # Produce plots of the potential and the trajectories
-    #potential_and_trajectory_plot(d, surf, potential, n_atom, n_record)
     #final_direction_plot(d, 10.0, potential, surf)
     print('Data is stored in: ', d)
     return(d, surf, cond, potential)
@@ -275,4 +301,5 @@ def main():
 
 
 if __name__ == '__main__':
-    ts = single_particle_test('verlet_method')
+    many_single_particles_test('test_random')
+    #ts = single_particle_test('verlet_method')

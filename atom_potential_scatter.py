@@ -170,8 +170,8 @@ class RandSurf(Surf):
                 break
         return(s)
 
-    def random_surf_gen(h_RMS, Dx, corr_len, N=10001):
-        self = RandSurf()
+    def random_surf_gen(self, h_RMS, Dx, corr_len, N=10001):
+        #self = RandSurf()
         if corr_len/Dx < 10:
             raise ValueError(("The segment size Dx is not sufficently small "
                               "compared to the correlation length"))
