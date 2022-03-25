@@ -14,8 +14,7 @@ import os
 import atom_potential_scatter as atom
 import time
 import sys
-from PyQt5.QtWidgets import QApplication, QLabel, QMainWindow
-from PyQt5.QtCore import Qt
+import tkinter as tk
 
 from matplotlib import rcParams
 rcParams.update({'figure.autolayout': True})
@@ -23,8 +22,10 @@ rcParams.update({'figure.autolayout': True})
 plt.style.use('ggplot')
 
 
-# Probably keep this one?
+# Probably keep this one? Move to the module?
 def plot_potential_1d(potential):
+    """Plots a potential provided in the potential object."""
+    
     y = np.linspace(-1, 5, 501)
     V = atom.morse_1d(y, potential)
     fig = plt.figure()
@@ -39,84 +40,116 @@ def plot_potential_1d(potential):
 
 def single_particle_test(fname):
     """Runs a single particle through the test potential and checks the
-    conservation of energy for that trajectory."""
+    conservation of energy for that trajectory. Note that this function uses
+    the debug surface consisting of a single gaussian 'defect'."""
 
     # Generate a random surface
-    h_RMS = 0.5
-    corr = 10
-    Dx = 0.05
-    surf = atom.Surf()#atom.RandSurf.random_surf_gen(h_RMS, Dx, corr, 5001)
+    h_RMS = 0.5 # The RMS height for the generated surface (nm)
+    corr = 10   # The correlation length for the generated surface (nm)
+    Dx = 0.05   # The element length in the surface (nm)
+    surf = atom.Surf() # Default surface: Gaussian bump
 
     # Set the parameters of the potential
-    De = 0.2
-    re = 1.0
-    a = 1.0
+    De = 1.0    # Depth
+    re = 1.0    # Displacement (nm)
+    a = 1.0     # Width (nm)
     potential = atom.Potential(De, re, a)
-
-    init_pos = [-15, 12]
-    init_v = [1, -1]/np.sqrt(2)
+    
+    # Iterations
     dt = 0.001
-    it = 5800*5
-    d = atom.run_single_particle(init_pos, init_v, dt, it, fname, potential,
-                                 surf=surf)
+    it = 5800*3
+    
+    # Initial condition object
+    init_cond = atom.Conditions(n_atom=1, Dt=dt, n_it=it, height_stop=10)
+    init_cond.set_velocity(45)
+    init_cond.set_position([-10, 10], 12)
+    
+    # Run the simulation
+    d, save_dir = atom.run_single_particle(init_cond, fname, potential, surf=surf)
+    
+    # Load and plot the trajectory
     traj = atom.Trajectory.load_trajectory(d)
-    fig1, ax1 = atom.plot_potential_2d(surf, potential, figsize=[0, 0, 1.0, 0.6])
+    fig1, ax1 = atom.plot_potential_2d(surf, potential, figsize=(7, 3))
     _, _ = traj.plot_traj(surf, potential, fig=fig1, ax=ax1)
     ax1.set_ylim([-2, 15])
     ax1.set_xlim([-25, 25])
+    
+    # Produce a plot of errors in the positions and velocities (compared to an
+    # analytic model)
     fig2, ax2 = traj.error_plot()
+    
+    # Produce plots of energy conservation
     fig3, ax3 = traj.conservation_of_energy(surf, potential)
     dv = traj.energy_deviation(surf, potential)
-    fig4 = plt.figure()
-    ax4 = fig4.add_axes([0, 0, 1.0, 0.6])
+    fig4 = plt.figure(figsize=(6,4))
+    ax4 = fig4.add_axes([0.15, 0.15, 0.8, 0.8])
     ax4.plot(traj.times, dv)
     ax4.set_xlabel('Time')
     ax4.set_ylabel('% energy deviation')
     print(traj.cuml_error())
+    
+    # Save all the plots as .eps and .png
+    plt.tight_layout()
+    fig1.savefig(save_dir + '/trajectories.pdf', bbox_inches="tight")
+    fig1.savefig(save_dir + '/trajectories.png', dpi=300, bbox_inches="tight")
+    fig2.savefig(save_dir + '/trajectory_error_plot.pdf', bbox_inches="tight")
+    fig2.savefig(save_dir + '/trajectory_error_plot.png', dpi=300, bbox_inches="tight")
+    fig3.savefig(save_dir + '/trajectory_energy.pdf', bbox_inches="tight")
+    fig3.savefig(save_dir + '/trajectory_energy.png', dpi=300, bbox_inches="tight")
+    fig4.savefig(save_dir + '/energy_deviation.pdf', bbox_inches="tight")
+    fig4.savefig(save_dir + '/energy_deviation.png', dpi=300, bbox_inches="tight")
+    
 
-# TODO: update
 def many_single_particles_test(save_dir):
     """Runs through many particles in the test potential and consideres the
-    conservation of energy of thise particles as a test case. By default records
+    conservation of energy of these particles as a test case. By default records
     all iterations of all trajectories and is non-parallel. This is designed
     for debuging and testing on medium scale simulations. Use run_many_particle
     for doing full scale simulations to avoid excessive sized data files and
     computation time."""
 
-    h_RMS = 1
+    h_RMS = 0.5
     corr = 10
     Dx = 0.02
     surf = atom.RandSurf()
     surf.random_surf_gen(h_RMS, Dx, corr, 5001)
 
     # Set the parameters of the potential
-    De = 0.5
-    a = 1
-    re = atom.ye_from_De(De, a)
+    De = 0.5    # Depth
+    a = 1     # Width (nm)
+    re = atom.ye_from_De(De, a)     # Displacement (nm)
     potential = atom.Potential(De, re, a)
 
-    init_xs = np.linspace(-40, 10, 51)
-    init_y = 15
-    init_v = [1, -1]
-    dt = 0.002/5
-    it = 3500*5*5
+    # Initial conditions for the atoms
+    x_range = (-40, 10) # Range of starting x positions
+    n_atom = 21         # Number of atoms
+    init_y = 12         # Initial y coordinate
+    dt = 0.002          # Timestep
+    it = 3500*20         # Max number of iterations
+    init_cond = atom.Conditions(n_atom=n_atom, Dt=dt, n_it=it,
+                                height_stop=10)
+    init_cond.set_position(x_range, init_y)
+    init_cond.set_velocity(45)
 
     save_dir = atom._simulation_dir(save_dir)
     potential.save_potential(save_dir)
+    surf.save_surf(save_dir)
+    init_cond.save_inital_conditions(save_dir)
+    
     # Run the simulations
     start = time.time()
     fnames = []
-    for i, x in enumerate(init_xs):
+    for i, x in enumerate(init_cond.position[0,]):
         fname = save_dir + '/' + 'particle' + str(i).zfill(1) + '.csv'
         if os.path.isfile(fname):
             os.remove(fname)
-        atom.run_single_particle([x, init_y], init_v, dt, it, fname, potential,
-                                 surf=surf, new_dir=False)
+        init_cond_tmp = init_cond.get_atom_n(i)
+        atom.run_single_particle(init_cond_tmp, fname, potential, surf=surf, new_dir=False)
         fnames.append(fname)
     end = time.time()
     print(end- start)
 
-    (fig, ax) = atom.plot_potential_2d(surf, potential, figsize=[0, 0, 1.0, 0.6])
+    (fig, ax) = atom.plot_potential_2d(surf, potential, figsize=(8,4))
     trajs = []
     for f in fnames:
         t = atom.Trajectory.load_trajectory(f)
@@ -125,7 +158,7 @@ def many_single_particles_test(save_dir):
     ax.set_xlim([-40, 40])
     ax.set_ylim([-2, 20])
     ax.set_title('')
-    fig.savefig(save_dir + '/trajectories_gayss_bump.eps', bbox_inches="tight")
+    fig.savefig(save_dir + '/trajectories.eps', bbox_inches="tight")
     return(trajs)
 
 
@@ -148,10 +181,9 @@ def many_partlce_test(save_dir):
     it = 3500*5*5
     dt = 0.002/5
     init_angle = 40
-    speed = 1
     cond = atom.Conditions(n_atom, dt, it)
     cond.set_position([-50, 50], 15)
-    cond.set_velocity(init_angle, speed)
+    cond.set_velocity(init_angle)
 
     # What proportion of trajectories should be saved (1 in every n)
     n_record = 1
@@ -273,33 +305,18 @@ def test_random_scatter():
     print('Data is stored in: ', d)
     return(d, surf, cond, potential)
 
+# IMPORTANT
+# 
+# Mass of the helium atom is set to be 1
+# Units of distance are in nm
+# Set the kinetic energy of the atoms to be 1 for 300K He-4 atoms
+# Therefore the speed of the atoms is sqrt(2) for 300K He-4 atoms
+# This sets the arbitary units of time: 8.0116735e-13 units/s
+# Note that this ties the 
 
-# Subclass QMainWindow to customise your application's main window
-class MainWindow(QMainWindow):
+#traj = many_single_particles_test('test_multiple_particles')
+single_particle_test('test_correct_energy')
 
-    def __init__(self, *args, **kwargs):
-        super(MainWindow, self).__init__(*args, **kwargs)
-
-        self.setWindowTitle("My Awesome App")
-
-        label = QLabel("This is a PyQt5 window!")
-
-        # The `Qt` namespace has a lot of attributes to customise
-        # widgets. See: http://doc.qt.io/qt-5/qt.html
-        label.setAlignment(Qt.AlignCenter)
-
-        # Set the central widget of the Window. Widget will expand
-        # to take up all the space in the window by default.
-        self.setCentralWidget(label)
-
-
-def main():
-    app = QApplication(sys.argv)
-    window = MainWindow()
-    window.show()  # IMPORTANT!!!!! Windows are hidden by default.
-    app.exec_()
-
-
-if __name__ == '__main__':
-    many_single_particles_test('test_random')
-    #ts = single_particle_test('verlet_method')
+#if __name__ == '__main__':
+#    #single_particle_test('test_one_particle')
+#    many_single_particles_test('test_multiple_particles')

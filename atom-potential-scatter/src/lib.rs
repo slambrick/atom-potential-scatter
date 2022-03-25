@@ -66,9 +66,9 @@ fn interpolate_surf(xs: Vec<f64>, ys: Vec<f64>) -> Spline<f64,f64> {
 }
 
 /// A simple gaussian function to use as a test surface. The mean is always 0.
-/// 
+///
 /// # Arguments
-/// 
+///
 /// * `x` - The value to calculate the Gaussian for
 /// * `s` - Standard deviation
 /// * `height` - Vertical scaling of the Gaussian
@@ -89,9 +89,9 @@ fn diff_at_point_gauss(x: f64) -> f64 {
 
 /// Calculates the value of the potential for a given (x,y) position, for the
 /// specified potential field.
-/// 
+///
 /// # Arguments
-/// 
+///
 /// * `x`   - x position to evauate at
 /// * `y`   - y position to evauate at
 /// * `p`   - Parameters of the potential
@@ -106,9 +106,9 @@ fn morse(x: f64, y: f64, p: &Potential) -> f64 {
 }
 
 /// Calculates the local derivative at a specified point on the provided spline
-/// 
+///
 /// # Arguments
-/// 
+///
 /// TODO: this
 fn diff_at_point(x: f64, spl: &Spline<f64,f64>) -> f64 {
     let epsilon: f64 = 0.01;
@@ -122,6 +122,7 @@ fn diff_at_point(x: f64, spl: &Spline<f64,f64>) -> f64 {
     dy/epsilon
 }
 
+/// Hmm, what does this do?
 fn c(q: Vector4<f64>, p: &Potential) -> Vector4<f64> {
     let r = if p.gauss {
         q[1] - gaussian(q[0], 5.0, 30.0)
@@ -136,6 +137,7 @@ fn c(q: Vector4<f64>, p: &Potential) -> Vector4<f64> {
     } else {
         diff_at_point(q[0], &p.surf)
     };
+    // Derivative of the potential gives us the acceleration if the mass is assumed to be 1
     let ax = 2.0*p.a*p.de*dd*( (-2.0*p.a*(r - p.re)).exp() - (-p.a*(r - p.re)).exp() );
     let ay = p.de*( -2.0*p.a*(-2.0*p.a*(r - p.re)).exp() + 2.0*p.a*(-p.a*(r - p.re)).exp() );
     Vector4::new(0.0, 0.0, -ax, -ay)
@@ -143,9 +145,9 @@ fn c(q: Vector4<f64>, p: &Potential) -> Vector4<f64> {
 
 /// Performs a single iteration of the 'classic' Runge-Kutta method
 fn runge_kutter_classic(q: Vector4<f64>, h: f64, param: &Potential) -> (Vector4<f64>, Vector4<f64>, Vector2<f64>) {
-    let b = Matrix4::new(0.0, 0.0, 1.0, 0.0, 
-                         0.0, 0.0, 0.0, 1.0, 
-                         0.0, 0.0, 0.0, 0.0, 
+    let b = Matrix4::new(0.0, 0.0, 1.0, 0.0,
+                         0.0, 0.0, 0.0, 1.0,
+                         0.0, 0.0, 0.0, 0.0,
                          0.0, 0.0, 0.0, 0.0);
     let k1 = b*q + c(q, param);
     let k2 = b*q + c(q + h*k1/2.0, param);
@@ -158,9 +160,9 @@ fn runge_kutter_classic(q: Vector4<f64>, h: f64, param: &Potential) -> (Vector4<
 /// Performs a single iteration of the 'Runge-Kutta-Fehlberg' method. Returns
 /// a tuple containing the results from both the 5th and 4th order methods
 fn runge_kutter_fehlberg(q: Vector4<f64>, h: f64, param: &Potential) -> (Vector4<f64>, Vector4<f64>, Vector2<f64>) {
-    let b = Matrix4::new(0.0, 0.0, 1.0, 0.0, 
-                         0.0, 0.0, 0.0, 1.0, 
-                         0.0, 0.0, 0.0, 0.0, 
+    let b = Matrix4::new(0.0, 0.0, 1.0, 0.0,
+                         0.0, 0.0, 0.0, 1.0,
+                         0.0, 0.0, 0.0, 0.0,
                          0.0, 0.0, 0.0, 0.0);
     let k1 = b*q + c(q, param);
     let k2 = b*q + c(q + h*(A21*k1), param);
@@ -168,18 +170,19 @@ fn runge_kutter_fehlberg(q: Vector4<f64>, h: f64, param: &Potential) -> (Vector4
     let k4 = b*q + c(q + h*(A41*k1 + A42*k2 + A43*k3), param);
     let k5 = b*q + c(q + h*(A51*k1 + A52*k2 + A53*k3 + A54*k4), param);
     let k6 = b*q + c(q + h*(A61*k1 + A62*k2 + A63*k3 + A64*k4 + A65*k5), param);
-    
+
     let q_5th = q + h*(k1*B1 + k3*B3 + k4*B4 + k5*B5 + k6*B6);
     let q_4th = q + h*(k1*B1_ + k3*B3_ + k4*B4_ + k5*B5_);
     (q_5th, q_4th, acceleration(q, param))
 }
 
+/// Hmm what does this do? What acceleration does it calculate
 fn acceleration(q: Vector4<f64>, param: &Potential) -> Vector2<f64> {
     let c_tmp = c(q, param);
     Vector2::new(c_tmp[2], c_tmp[3])
 }
 
-/// Performs a single iteration of the 'Verlet' method.
+/// Performs a single iteration of the 'Verlet' integration method.
 fn verlet(q: Vector4<f64>, h: f64, param: &Potential, a_old: Vector2<f64>) -> (Vector4<f64>, Vector4<f64>, Vector2<f64>) {
     let x_old = Vector2::new(q[0], q[1]);
     let v_old = Vector2::new(q[2], q[3]);
@@ -191,12 +194,16 @@ fn verlet(q: Vector4<f64>, h: f64, param: &Potential, a_old: Vector2<f64>) -> (V
 }
 
 //----------------------------------------------------------------------------//
-//----------------------------------------------------------------------------//
+//------------------------Potential struct------------------------------------//
 //----------------------------------------------------------------------------//
 
 
 
 /// Contains information on the potential field being used
+///
+/// * `de` - depth of the potential
+/// * `re` - displacement of the centre of the potential well
+/// * `a`  - width of the potential well
 struct Potential {
     de: f64,
     re: f64,
@@ -219,7 +226,7 @@ impl Clone for Potential {
 
 impl std::fmt::Display for Potential {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
-        write!(f, "\n======\n Potential\n======\nDe: {}\nre : {}\na : {}\nGauss bump? : {}", 
+        write!(f, "\n======\n Potential\n======\nDe: {}\nre : {}\na : {}\nGauss bump? : {}",
             self.de, self.re, self.a, self.gauss)
     }
 }
@@ -237,7 +244,7 @@ impl Potential {
         pot.gauss = false;
         pot
     }
-    
+
     /// Constructs a potential from a Gaussian bump for test purposes using the
     /// given parameters for the Morse function.
     fn gauss_potential(p: [f64;3]) -> Self {
@@ -251,7 +258,7 @@ impl Potential {
 
 impl Default for Potential {
     fn default() -> Self {
-        let ks = vec![Key::new(0.0, 0.0, Interpolation::Linear), 
+        let ks = vec![Key::new(0.0, 0.0, Interpolation::Linear),
             Key::new(1.0, 0.0, Interpolation::Linear)];
         Potential {
             de: 0.5,
@@ -266,7 +273,7 @@ impl Default for Potential {
 
 
 //----------------------------------------------------------------------------//
-//----------------------------------------------------------------------------//
+//---------------------------Atom struct--------------------------------------//
 //----------------------------------------------------------------------------//
 
 
@@ -290,10 +297,10 @@ struct Atom {
 impl Default for Atom {
     fn default() -> Self {
         Atom {
-            q_current: Vector4::new(0.0, 0.0, 0.0, 0.0),
-            error_current: Vector4::new(0.0, 0.0, 0.0, 0.0),
-            q_history: vec![Vector4::new(0.0, 0.0, 0.0, 0.0); 0],
-            error_history: vec![Vector4::new(0.0, 0.0, 0.0, 0.0); 0],
+            q_current: Vector4::new(f64::NAN, f64::NAN, f64::NAN, f64::NAN),
+            error_current: Vector4::new(f64::NAN, f64::NAN, f64::NAN, f64::NAN),
+            q_history: vec![Vector4::new(f64::NAN, f64::NAN, f64::NAN, f64::NAN); 0],
+            error_history: vec![Vector4::new(f64::NAN, f64::NAN, f64::NAN, f64::NAN); 0],
             current_it: 0,
             history: false,
             skip_record: 10,
@@ -323,14 +330,14 @@ impl Atom {
         at.current_acceleration = acceleration(q, param);
         at
     }
-    
+
     /// Adds a record of the atoms current state to the history of the atom
-    /// 
+    ///
     /// # Arguments
-    /// 
+    ///
     /// * `self` - the atom we are recording value for
     /// * `ind`  - which index should the state be saved into
-    /// 
+    ///
     /// # Examples
     /// ```
     /// \\ Add the initial position to the first entry
@@ -343,7 +350,7 @@ impl Atom {
             self.error_history[ind] = self.error_current;
         }
     }
-    
+
     fn one_it(&mut self, h: f64, param: &Potential, method: &str) {
         let qs = match method {
             "Classic"  => runge_kutter_classic(self.q_current, h, param),
@@ -362,13 +369,18 @@ impl Atom {
             self.add_record(ind);
         }
     }
-    
-    fn run_n_iteration(&mut self, h: f64, n_it: usize, param: &Potential, method: &str) {
+
+    fn run_n_iteration(&mut self, h: f64, n_it: usize, param: &Potential, method: &str, height_stop: f64) {
         for _i in 1..n_it {
             self.one_it(h, param, method);
+            // If the atom is travelling upwards and passes the stop point then
+            // stop simulating it
+            if self.q_current[1] > height_stop && self.q_current[3] > 0.0 {
+                break;
+            }
         }
     }
-    
+
     fn write_trajectory(&self, f_name: &str, h: f64) {
         //println!("{}", f_name);
         let mut file = OpenOptions::new()
@@ -377,18 +389,18 @@ impl Atom {
             .truncate(true)
             .open(f_name)
             .unwrap();
-        
+
         if self.record_error {
             writeln!(file, "time,x,y,vx,vy,e_x,e_y,e_vx,e_vy").unwrap();
         } else {
             writeln!(file, "time,x,y,vx,vy").unwrap();
         }
-        
+
         let mut t: f64 = 0.0;
         for i in 0..self.q_history.len() {
             let line = if self.record_error {
                 format!("{},{},{},{},{},{},{},{},{}", t, self.q_history[i][0],
-                    self.q_history[i][1], self.q_history[i][2], self.q_history[i][3], 
+                    self.q_history[i][1], self.q_history[i][2], self.q_history[i][3],
                     self.error_history[i][0], self.error_history[i][1], self.error_history[i][2],
                     self.error_history[i][3])
             } else {
@@ -404,8 +416,8 @@ impl Atom {
 impl std::fmt::Display for Atom {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
         write!(f, "\n======\n Atom\n======\nQ : {}\nE : {}\nhistory : {}\nrecord_error : \
-            {}\nrecord_size(q) : {}\nrecord_size(error) : {}", 
-            self.q_current, self.error_current, self.history, self.record_error, 
+            {}\nrecord_size(q) : {}\nrecord_size(error) : {}",
+            self.q_current, self.error_current, self.history, self.record_error,
             self.q_history.len(), self.error_history.len())
     }
 }
@@ -413,7 +425,7 @@ impl std::fmt::Display for Atom {
 
 
 //----------------------------------------------------------------------------//
-//----------------------------------------------------------------------------//
+//--------------------------SimParam struct-----------------------------------//
 //----------------------------------------------------------------------------//
 
 
@@ -425,29 +437,31 @@ struct SimParam {
     param: Potential,
     n_it: usize,
     method: String,
-    skip_record: usize
+    skip_record: usize,
+    height_stop: f64
 }
 
 impl std::fmt::Display for SimParam {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
-        write!(f, "\n======\n SimParam\n======\nDt: {}\nn_it : {}\nmethod : {}\nPotential : {}", 
-            self.h, self.n_it, self.method, self.param)
+        write!(f, "\n======\n SimParam\n======\nDt: {}\nn_it : {}\nmethod : {}\nPotential : {}\nHeight stop : {}",
+            self.h, self.n_it, self.method, self.param, self.height_stop)
     }
 }
 
-/// Runs the trajectory of a single particle through the specified potential. 
+//----------------------------------------------------------------------------//
+//----------------------Primary simulation functions--------------------------//
+//----------------------------------------------------------------------------//
+
+/// Runs the trajectory of a single particle through the specified potential.
 /// Returns an Atom struct containing the final state and potentially the
 /// history of the trajectory.
-/// 
+///
 /// # Argumnets
-/// 
-/// * `init_x` - Initial position.
-/// * `init_v` - Initial velocity.
-/// * `h` - Timestep to use.
-/// * `n` - The number of time steps to run.
+///
+/// * `init_q` - Initial conditions, [x, y, vx, vy].
+/// * `sim_params` - simulation paraneters.
+/// * `record_atom` - Should the trajectory of the atom be recorded.
 /// * `Potential` - Parameters for the potential to use.
-/// * `record_atom` - Flag for if to record the history of the atom
-/// * `method` - The integration method to use, either "Fehlberg" or "Classic"
 fn run_particle(init_q: Vector4<f64>, sim_params: &SimParam, record_atom: bool) -> Atom {
     let m = if record_atom {((sim_params.n_it as f64)/(sim_params.skip_record as f64)).round() as usize} else {0};
     let record_error =  sim_params.method.eq(&String::from("Fehlberg"));
@@ -456,11 +470,12 @@ fn run_particle(init_q: Vector4<f64>, sim_params: &SimParam, record_atom: bool) 
             sim_params.method.eq(&String::from("Verlet")));
     }
     let mut he = Atom::new(init_q, m, record_error, sim_params.skip_record, &sim_params.param);
-    
+
     if he.history {
         he.add_record(0);
     }
-    he.run_n_iteration(sim_params.h, sim_params.n_it, &sim_params.param, &sim_params.method);
+    he.run_n_iteration(sim_params.h, sim_params.n_it, &sim_params.param, &sim_params.method,
+                       sim_params.height_stop);
     he
 }
 
@@ -474,8 +489,8 @@ fn save_pos_vel(q: &[Vector4<f64>], f_name: &str) {
             .open(f_name)
             .unwrap();
     writeln!(file, "x,y,v_x,v_y").unwrap();
-    
-    
+
+
     for at in q {
         let line = format!("{},{},{},{}", at[0], at[1], at[2], at[3]);
         writeln!(file, "{}", line).unwrap();
@@ -494,6 +509,7 @@ fn compose_save_name(fname: &str, i: usize) -> String {
     save_name
 }
 
+/// Runs a simulation for a single atom
 fn run_it(q_init: Vector4<f64>, i: usize, record: usize, fname: &str, sim_params: &SimParam) -> Vector4<f64> {
     let record_atom = i % record == 0;
     let he_atom = run_particle(q_init, sim_params, record_atom);
@@ -502,11 +518,11 @@ fn run_it(q_init: Vector4<f64>, i: usize, record: usize, fname: &str, sim_params
         let save_name = compose_save_name(fname, i);
         he_atom.write_trajectory(&save_name, sim_params.h);
     }
-    
+
     he_atom.q_current
 }
 
-/// Runs the simulation on n atoms with the given list of starting conditions
+/// Runs the simulation on n atoms with the given list of starting conditions, parallelised
 fn run_n_particle(record: usize, sim_params: &SimParam, fname: &str, init_q: Vec<Vector4<f64>>) -> Vec<Vector4<f64>> {
     let q_iter = init_q.into_par_iter().enumerate().map(|(i, x)| run_it(x, i, record, fname, sim_params));
     q_iter.collect()
@@ -527,29 +543,28 @@ fn compose_vector4(x: &[f64], y: &[f64], vx: &[f64], vy: &[f64]) -> Vec<Vector4<
 
 
 //----------------------------------------------------------------------------//
-//----------------------------------------------------------------------------//
+//------------------------External functions----------------------------------//
 //----------------------------------------------------------------------------//
 
 
 
 #[no_mangle]
-#[doc(saftey)]
-pub unsafe extern fn single_particle(x: f64, y: f64, vx: f64, vy: f64, h: f64, 
-        n_it: u64, text: *const u8, len: u64, p1: *const f64, method: *const u8, 
+pub unsafe extern fn single_particle(x: f64, y: f64, vx: f64, vy: f64, h: f64,
+        n_it: u64, text: *const u8, len: u64, p1: *const f64, method: *const u8,
         len2: u64, x_surf: *const f64, y_surf: *const f64, n_surf: u64,
-        test_surf: u64, skip_record: u64) {
+        test_surf: u64, skip_record: u64, height_stop: f64) {
     let init_q = Vector4::new(x, y, vx, vy);
-    
+
     // Have to go via C-string to get the file name
     assert!(!text.is_null());
     let c_str = { slice::from_raw_parts(text, len as usize) };
     let fname = str::from_utf8(&c_str).unwrap();
-    
+
     // Have to go via C-string to get the integration method
     assert!(!method.is_null());
     let c_str2 = { slice::from_raw_parts(method, len2 as usize) };
     let method = str::from_utf8(&c_str2).unwrap();
-    
+
     // The parameters of the potential
     assert!(!p1.is_null());
     let p2 = { slice::from_raw_parts(p1, 3) };
@@ -562,26 +577,26 @@ pub unsafe extern fn single_particle(x: f64, y: f64, vx: f64, vy: f64, h: f64,
         let y_s = { slice::from_raw_parts(y_surf, n_surf as usize) };
         Potential::build_potential(x_s.to_vec(), y_s.to_vec(), copy_into_array(p2))
     };
-    
+
     let sim_params = SimParam {
         skip_record: skip_record as usize,
         h,
         param,
         n_it: n_it as usize,
-        method: method.to_string()
+        method: method.to_string(),
+        height_stop
     };
-    
+
     let he_atom = run_particle(init_q, &sim_params, true);
     let save_fname: String = fname.to_string();
     he_atom.write_trajectory(&save_fname, h);
 }
 
 #[no_mangle]
-#[doc(saftey)]
-pub unsafe extern fn multiple_particle(xs: *const f64, ys: *const f64, vxs: *const f64, 
-        vys: *const f64, n_atom: u64, h: f64, n_it: u64, text: *const u8, len: u64, 
-        p1: *const f64, record: u64, method: *const u8, len2: u64, x_surf: *const f64, 
-        y_surf: *const f64, n_surf: u64, test_surf: u64, skip_record: u64) {
+pub unsafe extern fn multiple_particle(xs: *const f64, ys: *const f64, vxs: *const f64,
+        vys: *const f64, n_atom: u64, h: f64, n_it: u64, text: *const u8, len: u64,
+        p1: *const f64, record: u64, method: *const u8, len2: u64, x_surf: *const f64,
+        y_surf: *const f64, n_surf: u64, test_surf: u64, skip_record: u64, height_stop: f64) {
     // Get a proper rust array from what we are passed
     let n = n_atom as usize;
     assert!(!xs.is_null());
@@ -592,7 +607,7 @@ pub unsafe extern fn multiple_particle(xs: *const f64, ys: *const f64, vxs: *con
     let vx = { slice::from_raw_parts(vxs, n) };
     assert!(!vys.is_null());
     let vy = { slice::from_raw_parts(vys, n) };
-    
+
     // The parameters of the potential
     assert!(!p1.is_null());
     let p2 = { slice::from_raw_parts(p1, 3) };
@@ -605,28 +620,29 @@ pub unsafe extern fn multiple_particle(xs: *const f64, ys: *const f64, vxs: *con
         let y_s = { slice::from_raw_parts(y_surf, n_surf as usize) };
         Potential::build_potential(x_s.to_vec(), y_s.to_vec(), copy_into_array(p2))
     };
-    
+
     // Have to go via C-string to get the file name
     assert!(!text.is_null());
     let c_str = { slice::from_raw_parts(text, len as usize) };
     let fname = str::from_utf8(&c_str).unwrap();
-    
+
     // Have to go via C-string to get the integration method
     assert!(!method.is_null());
     let c_str2 = { slice::from_raw_parts(method, len2 as usize) };
     let method = str::from_utf8(&c_str2).unwrap();
-    
+
     let sim_params = SimParam {
         skip_record: skip_record as usize,
         h,
         param,
         n_it: n_it as usize,
-        method: method.to_string()
+        method: method.to_string(),
+        height_stop
     };
-    
+
     let init_q = compose_vector4(x, y, vx, vy);
     let final_q = run_n_particle(record as usize, &sim_params, &fname.to_string(), init_q);
-    
+
     // Save all final positions and directions
     let mut final_fname: String = fname.to_string();
     final_fname.push_str("/final_states.csv");
@@ -634,9 +650,8 @@ pub unsafe extern fn multiple_particle(xs: *const f64, ys: *const f64, vxs: *con
 }
 
 #[no_mangle]
-#[doc(saftey)]
-pub unsafe extern fn calc_potential(xs: *const f64, ys: *const f64, vs: *mut f64, 
-        len: u64, p1: *const f64, x_surf: *const f64, y_surf: *const f64, 
+pub unsafe extern fn calc_potential(xs: *const f64, ys: *const f64, vs: *mut f64,
+        len: u64, p1: *const f64, x_surf: *const f64, y_surf: *const f64,
         n_surf: u64, test_surf: u64) {
     // Get a proper rust array from what we are passed
     let l = len as usize;
@@ -646,7 +661,7 @@ pub unsafe extern fn calc_potential(xs: *const f64, ys: *const f64, vs: *mut f64
     let y = { slice::from_raw_parts(ys, l) };
     assert!(!ys.is_null());
     let v = { slice::from_raw_parts_mut(vs, l) };
-    
+
     // The parameters of the potential
     assert!(!p1.is_null());
     let p2 = { slice::from_raw_parts(p1, 3) };
@@ -659,7 +674,7 @@ pub unsafe extern fn calc_potential(xs: *const f64, ys: *const f64, vs: *mut f64
         let y_s = { slice::from_raw_parts(y_surf, n_surf as usize) };
         Potential::build_potential(x_s.to_vec(), y_s.to_vec(), copy_into_array(p2))
     };
-    
+
     // TODO: can be done as an iterator
     for i in 0..l {
         v[i] = if param.gauss {
@@ -671,7 +686,6 @@ pub unsafe extern fn calc_potential(xs: *const f64, ys: *const f64, vs: *mut f64
 }
 
 #[no_mangle]
-#[doc(saftey)]
 pub unsafe extern fn gauss_bump(xs: *const f64, ys: *mut f64, len: u64, sigma: f64) {
     // Get a proper rust array from what we are passed
     let l = len as usize;
@@ -679,7 +693,7 @@ pub unsafe extern fn gauss_bump(xs: *const f64, ys: *mut f64, len: u64, sigma: f
     let x = { slice::from_raw_parts(xs, l) };
     assert!(!ys.is_null());
     let y = { slice::from_raw_parts_mut(ys, l) };
-    
+
     let h: f64 = 30.0;
     // TODO: can be done as an iterator?
     for i in 1..l {
@@ -689,7 +703,6 @@ pub unsafe extern fn gauss_bump(xs: *const f64, ys: *mut f64, len: u64, sigma: f
 
 
 #[no_mangle]
-#[doc(saftey)]
 pub unsafe extern fn print_text(text: *const u8, len: u64) {
     assert!(!text.is_null());
     let c_str = { slice::from_raw_parts(text, len as usize) };
@@ -699,30 +712,29 @@ pub unsafe extern fn print_text(text: *const u8, len: u64) {
 }
 
 #[no_mangle]
-#[doc(saftey)]
 /// The arrays of f64 `xs` and `ys` must both be of length `len`.
 /// The arrays of f64 `new_x` and `new_y` must both be of length `n_interp`.
 /// The array `new_y` will get overwritten.
-pub unsafe extern fn interpolate_test(xs: *const f64, ys: *mut f64, len: u64, 
+pub unsafe extern fn interpolate_test(xs: *const f64, ys: *mut f64, len: u64,
         new_x: *const f64, new_y: *mut f64, n_interp: u64) {
     let l = len as usize;
     assert!(!xs.is_null());
     let x = { slice::from_raw_parts(xs, l) };
     assert!(!ys.is_null());
     let y = { slice::from_raw_parts(ys, l) };
-    
+
     let m = n_interp as usize;
     assert!(!new_x.is_null());
     let xi = { slice::from_raw_parts(new_x, m) };
     assert!(!new_y.is_null());
     let yi = { slice::from_raw_parts_mut(new_y, m) };
-    
+
     let xx = x.to_vec();
     let yy = y.to_vec();
-    
+
     let splin = interpolate_surf(xx, yy);
     println!("{:?}", splin);
-    
+
     // TODO: can be done as an iterator?
     for i in 0..m {
         yi[i] = match splin.clamped_sample(xi[i]) {

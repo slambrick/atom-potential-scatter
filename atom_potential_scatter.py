@@ -32,6 +32,7 @@ def _parse_eq(s, typ='float'):
 
 
 def _load_text(fname):
+    '''Load a text file '''
     with open(fname) as f:
         content = f.readlines()
     content = [x.strip() for x in content]
@@ -101,6 +102,14 @@ def choose_time_step(pot, const):
 # --------------------------- Classes --------------------------------------- #
 
 class Surf:
+    '''Represents a surface to scatter atoms off.
+    
+    Dx - horizontal element length (nm)
+    _x - x points (nm)
+    _f - height points (nm)
+    N_points - number of points
+    _type - Type of surface
+    '''
     def __init__(self):
         self.Dx = 0.0
         self._x = np.array([])
@@ -123,6 +132,9 @@ class Surf:
         return(s)
 
     def set_surface(self, x, f, Dx):
+        '''Sets the surface object to have the set of (x,f) positions provided
+        as the input arguments.'''
+        
         if len(x) != len(f):
             raise ValueError('x and y lengths are not the same')
         if sum((abs(np.diff(x) - Dx)) < 1e-10) != len(x) - 1:
@@ -133,6 +145,24 @@ class Surf:
         self.N_points = len(x)
         self.Dx = Dx
         self.__type = 'interpolate'
+        
+    def save_surf(self, dir_name):
+        '''Saves information on the Surface object to a text file in the given
+        directory.'''
+        
+        fname = dir_name + '/surface_used.csv'
+        fid = open(fname, 'w')
+        fid.write('Surface type: {}\n'.format(self.__type))
+        fid.write('Dx: {}\n'.format(self.Dx))
+        fid.write('Surface points in space:\n')
+        fid.write('x,y\n')
+        for x, y in zip(self._x, self._f):
+            fid.write('{},{}\n'.format(x, y))
+        fid.close()
+    
+    def load_surf(self, dir_name):
+        '''Loads a Surface object from a text file in the given directory.'''
+        # TODO
 
     def get_points(self):
         return(self._x, self._f)
@@ -148,6 +178,15 @@ DEFAULT_SURF = Surf()
 
 
 class RandSurf(Surf):
+    """Contains information on a random surface, inherits from the Surf class.
+    In addition to the (x,f) points of the Surf this class contains:
+        
+        lambd - 
+        h     - 
+        h_RMS - RMS height used to generate the surface
+        corr_len - Correlation length used to generate the surface
+    """
+    
     def __init__(self):
         super().__init__()
         self.lambd = 0.0
@@ -198,7 +237,7 @@ class RandSurf(Surf):
 
     def plot_surf_properties(self):
         fig = plt.figure()
-        ax = fig.add_axes([0, 0, 1.2, 0.35])
+        ax = fig.add_axes([0.1, 0.1, 1.2, 0.35])
         ax.plot(self._x, self._f)
         ax.set_title('Generated surface profile')
         ax.set_xlabel('x/nm')
@@ -208,7 +247,7 @@ class RandSurf(Surf):
         ax.set_xlim(lims)
 
         fig2 = plt.figure()
-        ax2 = fig2.add_axes([0, 0, 0.6, 0.6])
+        ax2 = fig2.add_axes([0.1, 0.1, 0.6, 0.6])
         ax2.hist(self._f, density=True, label='Generated')
         end = max(abs(self._f))
         xx = np.linspace(-end, end, 501)
@@ -220,7 +259,7 @@ class RandSurf(Surf):
         ax2.legend(loc='lower right')
 
         fig3 = plt.figure()
-        ax3 = fig3.add_axes([0, 0, 0.6, 0.6])
+        ax3 = fig3.add_axes([0.1, 0.1, 0.6, 0.6])
         auto_corr = np.correlate(self._f, self._f, mode='same')
         auto_corr = auto_corr/max(auto_corr)
         corr_x = np.arange(-len(auto_corr)*self.Dx/2, len(auto_corr)*self.Dx/2,
@@ -236,7 +275,7 @@ class RandSurf(Surf):
         ax3.legend()
 
         fig4 = plt.figure()
-        ax4 = fig4.add_axes([0, 0, 0.6, 0.6])
+        ax4 = fig4.add_axes([0.1, 0.1, 0.6, 0.6])
         grad = np.diff(self._f)/self.Dx
         ax4.hist(grad, density=True, label='Generated')
         end = max(abs(grad))
@@ -253,7 +292,7 @@ class RandSurf(Surf):
 
     def plot_potential(self, param):
         fig1 = plt.figure()
-        ax1 = fig1.add_axes([0, 0, 1.2, 0.5])
+        ax1 = fig1.add_axes([0.1, 0.1, 1.2, 0.5])
         ax1.plot(self._x, self._f)
         ax1.set_xlim([-self.Dx*1000, self.Dx*1000])
         ax1.set_xlabel('x/nm')
@@ -265,7 +304,7 @@ class RandSurf(Surf):
         V = morse_potential(g[0].flatten(), g[1].flatten(), param,
                             self).reshape((171, 401))
         fig2 = plt.figure()
-        ax2 = fig2.add_axes([0, 0, 1.2, 0.5])
+        ax2 = fig2.add_axes([0.1, 0.1, 1.2, 0.5])
         cs = ax2.contourf(g[0], g[1], V, cmap=cm.coolwarm,
                           levels=np.linspace(-1, 1, 21), extend='max')
         ax2.set_xlabel("x/nm")
@@ -276,8 +315,8 @@ class RandSurf(Surf):
         ax2.set_title("Atom potential")
         return([(fig1, ax1), (fig2, ax2)])
 
-    def save_surf(self, dir_name):
-        fname = dir_name + '/surface_used.csv'
+    def save_random_surf(self, dir_name):
+        fname = dir_name + '/random_surface_used.csv'
         fid = open(fname, 'w')
         fid.write('Surface statistics:\n')
         fid.write('h_RMS = ' + str(self.h_RMS) + '\n')
@@ -311,7 +350,14 @@ class RandSurf(Surf):
 
 
 class Potential:
-    """Contains the three parameters for the """
+    """Contains the three parameters for the Morse potential:
+        
+    Depth        - depth of the potential well in 
+    Displacement - Distance of the well from the 'hard wall' position, it is not a
+                   particuarly relavent parameter for these simulations. (nm)
+    Width        - width of the potential well. (nm)
+        """
+    
     def __init__(self, De=0.1, re=0.0, a=1.0):
         self.Depth = De
         self.Displacement = re
@@ -326,6 +372,9 @@ class Potential:
                 self.Dusplacement})
 
     def save_potential(self, dir_name):
+        '''Saves the potential in a text file in the specified directory. 
+        Potentials saved this way can be loaded with load_potential().'''
+        
         fname = dir_name + '/potential_parameters.txt'
         fid = open(fname, 'w')
         fid.write('Well depth, De = ' + str(self.Depth) + '\n')
@@ -334,6 +383,9 @@ class Potential:
         fid.close()
 
     def load_potential(dir_name):
+        '''Loads a potential that was saved to a text file with the method
+        save_potential().'''
+        
         self = Potential()
         fname = dir_name + '/potential_parameters.txt'
         content = _load_text(fname)
@@ -344,16 +396,29 @@ class Potential:
 
 
 class Conditions:
-    def __init__(self, n_atom=0, Dt=0.05, n_it=1000):
+    '''Initial conditions of the atoms in a simulation:
+    
+    n_atom - the number of atoms used
+    Dt     - the time step used
+    n_it   - the number of iterations run
+    position - the initial positions of the atoms (nm)
+    velocity - the initial velocity of the atoms (nm)
+    height_stop - Height at which the atoms trajectories will stop being
+                  computed
+    '''
+    
+    def __init__(self, n_atom=0, Dt=0.05, n_it=1000, height_stop=np.inf):
         self.n_atom = n_atom
         self.Dt = Dt
         self.n_it = int(n_it)
         self.position = np.zeros([2, self.n_atom])
         self.velocity = np.zeros([2, self.n_atom])
+        self.height_stop = height_stop
 
     def __repr__(self):
         s = "Number of atoms: {}\nTime step: {}\n".format(self.n_atom, self.Dt)
-        s = s + "Number of iterations: {}\n".format(self.n_it)
+        s = s + "Max number of iterations: {}\n".format(self.n_it)
+        s = s + "Height stop: {}\n".format(self.height_stop)
         t1 = ("Initial conditions of the first 5 atoms:\n    x,     y,    vx,"
               "    vy\n")
         t2 = "Initial conditions of the atoms:\n    x,     y,    vx,    vy\n"
@@ -369,8 +434,20 @@ class Conditions:
                 s = s + '...'
                 break
         return(s)
+    
+    def get_atom_n(self, n):
+        cond_n = Conditions(n_atom=1, Dt=self.Dt, n_it = self.n_it, height_stop = self.height_stop)
+        cond_n.velocity[0] = self.velocity[0,n]
+        cond_n.velocity[1] = self.velocity[1,n]
+        cond_n.position[0] = self.position[0,n]
+        cond_n.position[1] = self.position[1,n]
+        return(cond_n)
 
-    def set_velocity(self, init_angle, speed):
+    def set_velocity(self, init_angle, speed=np.sqrt(2)):
+        '''Sets the velocity of the atoms for the specified incidence angle and
+        speed. The default speed is sqrt(2) in the simulation units, which
+        makes the kinetic energy 1 if the mass is 1.'''
+        
         v = speed*np.array([[np.sin(init_angle*np.pi/180)],
                            [-np.cos(init_angle*np.pi/180)]])
         self.velocity = np.repeat(v, self.n_atom, axis=1)
@@ -381,7 +458,7 @@ class Conditions:
         self.position = np.array([xs, ys])
 
     def save_inital_conditions(self, dir_name):
-        fname = dir_name + '/initial_conditions.csv'
+        fname = dir_name + '/initial_conditions.txt'
         fid = open(fname, 'w')
         fid.write('Number of atoms = {}\n'.format(self.n_atom))
         fid.write('Time step = {}\n'.format(self.Dt))
@@ -392,7 +469,7 @@ class Conditions:
         fid.close()
 
     def load_initial_conditions(dir_name):
-        fname = dir_name + '/initial_conditions.csv'
+        fname = dir_name + '/initial_conditions.txt'
         content = _load_text(fname)
         n_atom = _parse_eq(content[0], typ='int')
         dt = _parse_eq(content[1])
@@ -475,10 +552,10 @@ class Trajectory:
         deviation = 100*(kin_energy + pot_energy)/init_energy - 100
         return(deviation)
 
-    def conservation_of_energy(self, surf, potential, mass=1.0):
+    def conservation_of_energy(self, surf, potential, mass=1.0, figsize=(6,4)):
         kin_energy, pot_energy = self.energy(surf, potential)
-        fig = plt.figure()
-        ax = fig.add_axes([0, 0, 1.0, 0.7])
+        fig = plt.figure(figsize=figsize)
+        ax = fig.add_axes([0.15, 0.15, 0.8, 0.8])
         ax.plot(self.times, kin_energy, label='Kinetic energy')
         ax.plot(self.times, pot_energy, label='Potential energy')
         ax.plot(self.times, kin_energy + pot_energy, label='Total energy')
@@ -498,15 +575,17 @@ class Trajectory:
         ax.set_ylim(-5, _myround(max(self.position[1])))
         return(fig, ax)
 
-    def error_plot(self, fig=None, ax=None):
+    def error_plot(self, fig=None, ax=None, figsize=(6,4)):
         if ax is None:
-            fig = plt.figure()
-            ax = fig.add_axes([0, 0, 1.0, 0.6])
+            fig = plt.figure(figsize=figsize)
+            ax = fig.add_axes([0.1, 0.1, 0.9, 0.9])
         ax.plot(self.times, self.pos_error[0], color='blue', label='x')
         ax.plot(self.times, self.pos_error[1], color='red', label='y')
         ax.plot(self.times, self.vel_error[0], color='green', label='vx')
         ax.plot(self.times, self.vel_error[1], color='black', label='vy')
         ax.legend()
+        ax.set_xlabel('Time')
+        ax.set_ylabel('Absolute error')
         return(fig, ax)
 
     def cuml_error(self):
@@ -565,7 +644,7 @@ class FinalStates:
         _, vel = self.get_escaped()
         theta = np.arctan(vel[0]/vel[1])*180/np.pi
         fig = plt.figure()
-        ax = fig.add_axes([0, 0, 0.7, 0.7])
+        ax = fig.add_axes([0.1, 0,1, 0.7, 0.7])
         ax.hist(theta, bins=36, density=True)
         ax.set_xlim([-90, 90])
         ax.set_xlabel(r'$\theta/^o$')
@@ -575,21 +654,20 @@ class FinalStates:
 
 # --------------------------- Display functions ----------------------------- #
 
-def plot_potential_2d(surf, potential, ax=None, figsize=[0, 0, 2, 0.5]):
+def plot_potential_2d(surf, potential, ax=None, figsize=(7, 3)):
     xx = np.linspace(-80, 80, 401)
     yy = np.linspace(-5, 30, 171)
     g = np.meshgrid(xx, yy)
     V = morse_potential(g[0].flatten(), g[1].flatten(), potential,
                         surf).reshape((171, 401))
     if ax is None:
-        fig = plt.figure()
-        ax = fig.add_axes(figsize)
+        fig = plt.figure(figsize=figsize)
+        ax = fig.add_axes([0.1, 0.18, 0.92, 0.75])
     cs = ax.contourf(g[0], g[1], V, cmap=cm.coolwarm,
                      levels=np.linspace(-1, 1, 21), extend='max')
     ax.set_xlabel("x")
     ax.set_ylabel("y")
     fig.colorbar(cs, ax=ax)
-    ax.set_title("Atom potential")
     return(fig, ax)
 
 
@@ -608,12 +686,25 @@ def plot_potential_2d(surf, potential, ax=None, figsize=[0, 0, 2, 0.5]):
 #    fig.savefig(d + "/many_trajectories_rust.pdf", bbox_inches="tight")
 #
 
-# --------------------------- Interface functions --------------------------- #
+# ------------------- Simultion Interface functions ------------------------- #
 
-def run_single_particle(init_pos, init_v, dt, it, sim_name, potential,
+def run_single_particle(init_cond, sim_name, potential,
                         surf=DEFAULT_SURF, method="Fehlberg", new_dir=True):
     """Runs a single particle with the specified initial conditions through the
-    potential for a given number of iteration with the given timestep."""
+    potential for a given number of iteration with the given timestep. This
+    function calls the shared library function 'atom_scatter.single_particle()'
+    and therefore adapts the variables into appropriate C legible variables.
+    
+    init_pos - the initial position of the atom
+    init_v   - the initial velocity of the atom
+    dt       - time step to use
+    it       - the number of iterations to use
+    sim_name - name for the directory to save the data
+    potential - parameters of the potential field
+    surf      - surface to use
+    method    - integration method to use
+    new_dir   - create a new directory to save the data (default = True)
+    """
 
     # Put the surface information into the correct types
     xs, ys = surf.get_points()
@@ -628,19 +719,32 @@ def run_single_particle(init_pos, init_v, dt, it, sim_name, potential,
     p = (c_double*3)(*[potential.Depth, potential.Displacement,
                        potential.Width])
     # Put the initial conditions into C arrays of doubles
-    x = c_double(init_pos[0])
-    y = c_double(init_pos[1])
-    vx = c_double(init_v[0])
-    vy = c_double(init_v[1])
+    x = c_double(init_cond.position[0])
+    y = c_double(init_cond.position[1])
+    vx = c_double(init_cond.velocity[0])
+    vy = c_double(init_cond.velocity[1])
 
+    # Directory for saving the data
+    if new_dir:
+        save_dir = _simulation_dir(sim_name)
+        d = save_dir + '/atom_traajectory.csv'
+        potential.save_potential(save_dir)
+        surf.save_surf(save_dir)
+        init_cond.save_inital_conditions(save_dir)
+    else:
+        save_dir = '/'.join(sim_name.split('/')[0:-1])
+        d = sim_name
+    
     # Put the directory name and integration method into a C array of chars
-    d = _simulation_dir(sim_name) + '/atom_traajectory.csv' if new_dir else sim_name
     arr = (c_char*len(d))(*d.encode('ascii'))
     mth = (c_char*len(method))(*method.encode('ascii'))
-    atom_scatter.single_particle(x, y, vx, vy, c_double(dt), c_uint64(it), arr,
+    
+    # Run the rust code
+    atom_scatter.single_particle(x, y, vx, vy, c_double(init_cond.Dt), c_uint64(init_cond.n_it), arr,
                                  c_uint64(len(d)), p, mth, c_uint64(len(mth)),
-                                 surf_x, surf_y, surf_n, test_surf, c_uint64(1))
-    return(d)
+                                 surf_x, surf_y, surf_n, test_surf, c_uint64(1),
+                                 c_double(init_cond.height_stop))
+    return(d, save_dir)
 
 
 def run_many_particle(init_cond, sim_name, potential, record,
@@ -672,8 +776,13 @@ def run_many_particle(init_cond, sim_name, potential, record,
     atom_scatter.multiple_particle(xs, ys, vxs, vys, n_atom, c_double(init_cond.Dt),
                                    c_uint64(init_cond.n_it), arr, c_uint64(len(d)), p,
                                    c_uint64(record), meth, c_uint64(len(meth)),
-                                   surf_x, surf_y, surf_n, test_surf, c_uint64(10))
+                                   surf_x, surf_y, surf_n, test_surf, c_uint64(10),
+                                   c_double(init_cond.height_stop))
     return(d)
+
+
+# ----------------------- Other Interface functions ------------------------- #
+
 
 
 def morse_potential(xs, ys, potential, surf=DEFAULT_SURF):
@@ -701,8 +810,8 @@ def morse_potential(xs, ys, potential, surf=DEFAULT_SURF):
 
 
 def passing_string_to_rust():
-    """Demo function for passing strings from python to rust. Not really
-    usefull for anything"""
+    """Demo function for passing strings from python to rust. Not actually used
+    but a useful template."""
 
     L = "Hello from rust!"
     arr = (c_char*len(L))(*L.encode('ascii'))
@@ -722,6 +831,8 @@ def gauss_bump(xs):
 
 
 def interp_test(x, y, xs):
+    """Tests the interpolation between points."""
+    
     i = x.ctypes.data_as(ctypes.POINTER(c_double))
     j = y.ctypes.data_as(ctypes.POINTER(c_double))
     k = xs.ctypes.data_as(ctypes.POINTER(c_double))
