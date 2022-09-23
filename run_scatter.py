@@ -100,7 +100,7 @@ def single_particle_test(fname):
     fig4.savefig(save_dir + '/energy_deviation.png', dpi=300, bbox_inches="tight")
     
 
-def many_single_particles_test(save_dir):
+def many_single_particles_test(save_dir, bump=False):
     """Runs through many particles in the test potential and consideres the
     conservation of energy of these particles as a test case. By default records
     all iterations of all trajectories and is non-parallel. This is designed
@@ -112,7 +112,8 @@ def many_single_particles_test(save_dir):
     corr = 10
     Dx = 0.02
     surf = atom.RandSurf()
-    surf.random_surf_gen(h_RMS, Dx, corr, 5001)
+    if not bump:
+        surf.random_surf_gen(h_RMS, Dx, corr, 5001)
 
     # Set the parameters of the potential
     De = 0.5    # Depth
@@ -312,10 +313,10 @@ def test_random_scatter():
 # Set the kinetic energy of the atoms to be 1 for 300K He-4 atoms
 # Therefore the speed of the atoms is sqrt(2) for 300K He-4 atoms
 # This sets the arbitary units of time: 8.0116735e-13 units/s
-# Note that this ties the 
+# Note that this ties the ...
 
-#traj = many_single_particles_test('test_multiple_particles')
-single_particle_test('test_correct_energy')
+traj = many_single_particles_test('bump_test')
+#single_particle_test('test_correct_energy')
 
 #if __name__ == '__main__':
 #    #single_particle_test('test_one_particle')
