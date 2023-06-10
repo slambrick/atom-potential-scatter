@@ -2,6 +2,8 @@
 
 extern crate nalgebra as na;
 extern crate rayon;
+extern crate rand_distr;
+extern crate rand;
 
 use na::{Vector4, Matrix4, Vector2};
 use core::f64::consts::PI;
@@ -12,6 +14,9 @@ use std::str;
 use std::convert::AsMut;
 use splines::{Interpolation, Key, Spline};
 use rayon::prelude::*;
+use rand_distr::{Normal, Distribution};
+use rand::prelude::*;
+//use convolutions_rs::convolutions::*;
 
 /// Constans used by the R-K-F integration method.
 /// These value fill up the Butcher tableau
@@ -41,6 +46,33 @@ const B1_: f64 = 25.0/216.0;
 const B3_: f64 = 1408.0/2565.0;
 const B4_: f64 = 2197.0/4104.0;
 const B5_: f64 = -1.0/5.0;
+
+/// Performs a 1D convolution for two arrays of the same length
+fn convolve(f: Vec<f64>, g: Vec<f64>) -> Vec<f64> {
+    assert!(f.len() == g.len());
+    assert!(f.len() >= 2);
+    let n: usize = f.len();
+    let len_output: usize = 2*n - 1;
+    let mut full_output = vec![0.0; len_output];
+    let mut output = vec![0.0; n];
+
+    for i in 0..len_output {
+        let mut val = 0.0;
+        for j in 0..g.len() {
+            if i >= j && i - j < n {
+                val += f[j] * g[i - j];
+            }
+        }
+        full_output[i] = val;
+    }
+
+    let skip: usize = (len_output - n)/2;
+    for i in 0..n {
+        output[i] = full_output[i + skip];
+    }
+
+    output
+}
 
 /// Copys a slice into an array
 fn copy_into_array<A, T>(slice: &[T]) -> A
@@ -193,6 +225,95 @@ fn verlet(q: Vector4<f64>, h: f64, param: &Potential, a_old: Vector2<f64>) -> (V
     (q_new, q_new, a_new)
 }
 
+/// Generates a random Gaussian surface. Arguments should be chosen carefully. 
+/// The number of points must be odd.
+fn random_surf_gen_core(h: f64, dx: f64, lambda: f64, s: f64, n: usize) ->  (Vec<f64>, Vec<f64>){
+    assert!(n % 2 == 1);
+    // Random Gaussian points
+    let mut zs: Vec<f64> = Vec::with_capacity(n);
+    let normal = Normal::new(0.0, s).unwrap();
+    let mut rng: ThreadRng = rand::thread_rng();
+    let mut n_rand = normal.sample_iter(&mut rng);
+    for i in 0..n-1  {
+        zs[i] = n_rand.next().unwrap();
+    }
+    
+    // Generate exponential points to represent the correlation length
+    let mut ms: Vec<f64> = Vec::with_capacity(n);
+    let mut es: Vec<f64> = Vec::with_capacity(n);
+    let mut xs: Vec<f64> = Vec::with_capacity(n);
+    for i in 0..n-1 {
+        ms[i] = -(n as f64)/2.0 + (i as f64);
+        es[i] = (- ms[i].abs() * dx/lambda).exp();
+        xs[i] = ms[i]*dx;
+    }
+
+    // TODO: convolve zs with es
+    // Why is there not just a function that does this?!?!
+    let mut fs = convolve(zs, es);
+    for i in 1..n {
+        fs[i] *= h;
+    }
+    (fs, xs)
+}
+
+
+//----------------------------------------------------------------------------//
+//------------------------Random Surface struct-------------------------------//
+//----------------------------------------------------------------------------//
+
+struct RandSurface{
+    lambda: f64,
+    h: f64,
+    h_rms: f64,
+    corr_len: f64,
+    pot: Potential
+}
+
+impl Default for RandSurface {
+    fn default() -> Self {
+        RandSurface { 
+            lambda: 0.0,    // Correlation length variable used in the surface constructor
+            h: 0.0,         // Height variable used in the surface constructor
+            h_rms: 0.0,     // RMS height desired for the surface
+            corr_len: 0.0,  // Correlation length desired for the surface
+            pot: Potential::default() // The potential
+        }
+    }
+}
+
+impl Clone for RandSurface {
+    fn clone(&self) -> Self {
+        RandSurface { 
+            lambda: self.lambda, 
+            h: self.h, 
+            h_rms: self.h_rms, 
+            corr_len: self.corr_len, 
+            pot: self.pot.clone() 
+        }
+    }
+}
+
+impl RandSurface {
+    /// Generates a random Gaussian surface
+    fn generate_surface(h_rms: f64, dx: f64, corr_len: f64, n: usize, p: [f64;3]) -> Self {
+        let lambda: f64 = 0.5*corr_len.powf(2.0/3.0);
+        let h: f64 = h_rms*((dx/lambda).tanh()).sqrt();
+        let (fs, xs) = random_surf_gen_core(h, dx, lambda, 1.0, n);
+        let mut surf: RandSurface = Default::default();
+        surf.lambda = lambda;
+        surf.h = h;
+        surf.h_rms = h_rms;
+        surf.corr_len = corr_len;
+        surf.pot = Potential::build_potential(xs, fs, p);
+        surf
+    }
+
+    fn save_to_file(fname: &str) {
+        
+    }
+}
+
 //----------------------------------------------------------------------------//
 //------------------------Potential struct------------------------------------//
 //----------------------------------------------------------------------------//
@@ -204,6 +325,8 @@ fn verlet(q: Vector4<f64>, h: f64, param: &Potential, a_old: Vector2<f64>) -> (V
 /// * `de` - depth of the potential
 /// * `re` - displacement of the centre of the potential well
 /// * `a`  - width of the potential well
+/// * `surf` - Spline representing the surface
+/// * `gauss` - are we using the test GAussian bump sample
 struct Potential {
     de: f64,
     re: f64,

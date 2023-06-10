@@ -14,3 +14,5 @@ crate-type = ["dylib"]
 nalgebra = "0.20"
 splines = "1.0.0"
 rayon = "1.1"
+rand_distr = "0.4.3"
+rand = "0.8.5"
