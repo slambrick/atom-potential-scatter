@@ -4,6 +4,8 @@ extern crate nalgebra as na;
 extern crate rayon;
 extern crate rand_distr;
 extern crate rand;
+extern crate fftconvolve;
+extern crate ndarray;
 
 use na::{Vector4, Matrix4, Vector2};
 use core::f64::consts::PI;
@@ -16,6 +18,8 @@ use splines::{Interpolation, Key, Spline};
 use rayon::prelude::*;
 use rand_distr::{Normal, Distribution};
 use rand::prelude::*;
+use fftconvolve::{fftconvolve, Mode};
+use ndarray::{Array, ArrayBase, Axis, Data, Dimension, Slice, Array1}; 
 //use convolutions_rs::convolutions::*;
 
 /// Constans used by the R-K-F integration method.
@@ -72,6 +76,12 @@ fn convolve(f: Vec<f64>, g: Vec<f64>) -> Vec<f64> {
     }
 
     output
+}
+
+/// Faster convolution using FFT
+fn convolve_fft(f: Vec<f64>, g: Vec<f64>)  {
+    // TODO
+
 }
 
 /// Copys a slice into an array
@@ -250,10 +260,15 @@ fn random_surf_gen_core(h: f64, dx: f64, lambda: f64, s: f64, n: usize) ->  (Vec
 
     // TODO: convolve zs with es
     // Why is there not just a function that does this?!?!
-    let mut fs = convolve(zs, es);
+    //let mut fs = convolve(zs, es);
+    let zs_a = Array1::from_shape_vec(n, zs).unwrap();
+    let es_a = Array1::from_shape_vec(n, es).unwrap();
+    let fs_a = fftconvolve(&zs_a, &es_a, Mode::Same).unwrap();
+    let mut fs: Vec<f64> = vec![0.0; n];
     for i in 1..n {
-        fs[i] *= h;
+        fs[i] = fs_a[i]*h;
     }
+
     (fs, xs)
 }
 

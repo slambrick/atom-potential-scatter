@@ -238,6 +238,8 @@ class RandSurf(Surf):
         return(f, xs)
 
     def plot_surf_properties(self):
+        n_bin = round(self.N_points/200)
+        
         fig = plt.figure()
         ax = fig.add_axes([0.1, 0.1, 1.2, 0.35])
         ax.plot(self._x, self._f)
@@ -250,7 +252,7 @@ class RandSurf(Surf):
 
         fig2 = plt.figure()
         ax2 = fig2.add_axes([0.1, 0.1, 0.6, 0.6])
-        ax2.hist(self._f, density=True, label='Generated')
+        ax2.hist(self._f, density=True, bins=n_bin, label='Generated')
         end = max(abs(self._f))
         xx = np.linspace(-end, end, 501)
         yy = 1/(np.sqrt(2*np.pi)*self.h_RMS) * np.exp(-xx**2/(2*self.h_RMS**2))
@@ -279,7 +281,7 @@ class RandSurf(Surf):
         fig4 = plt.figure()
         ax4 = fig4.add_axes([0.1, 0.1, 0.6, 0.6])
         grad = np.diff(self._f)/self.Dx
-        ax4.hist(grad, density=True, label='Generated')
+        ax4.hist(grad, density=True, bins=n_bin, label='Generated')
         end = max(abs(grad))
         xx = np.linspace(-end, end, 501)
         yy = (self.lambd/(np.sqrt(2*np.pi)*self.h_RMS)) * \
