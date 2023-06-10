@@ -24,7 +24,7 @@ dependencies = [
 
 [[package]]
 name = "atom-potential-scatter"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "nalgebra",
  "rand 0.8.5",

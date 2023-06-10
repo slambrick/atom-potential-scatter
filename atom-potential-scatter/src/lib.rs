@@ -88,7 +88,7 @@ where
 /// Takes two vectors of x and y positions and applies cubic hermite polynomial
 /// interpolation to those to create a Spline for evaluating the values of
 /// surface heights. Returns the spline.
-fn interpolate_surf(xs: Vec<f64>, ys: Vec<f64>) -> Spline<f64,f64> {
+fn interpolate_surf(xs: &Vec<f64>, ys: &Vec<f64>) -> Spline<f64,f64> {
     assert!(xs.len() == ys.len());
     let mut ks = vec![Key::new(0.0, 0.0, Interpolation::CatmullRom); xs.len()];
     for i in 0..xs.len() {
@@ -230,19 +230,19 @@ fn verlet(q: Vector4<f64>, h: f64, param: &Potential, a_old: Vector2<f64>) -> (V
 fn random_surf_gen_core(h: f64, dx: f64, lambda: f64, s: f64, n: usize) ->  (Vec<f64>, Vec<f64>){
     assert!(n % 2 == 1);
     // Random Gaussian points
-    let mut zs: Vec<f64> = Vec::with_capacity(n);
+    let mut zs: Vec<f64> = vec![0.0; n];
     let normal = Normal::new(0.0, s).unwrap();
     let mut rng: ThreadRng = rand::thread_rng();
     let mut n_rand = normal.sample_iter(&mut rng);
-    for i in 0..n-1  {
+    for i in 0..n  {
         zs[i] = n_rand.next().unwrap();
     }
     
     // Generate exponential points to represent the correlation length
-    let mut ms: Vec<f64> = Vec::with_capacity(n);
-    let mut es: Vec<f64> = Vec::with_capacity(n);
-    let mut xs: Vec<f64> = Vec::with_capacity(n);
-    for i in 0..n-1 {
+    let mut ms: Vec<f64> = vec![0.0; n];
+    let mut es: Vec<f64> = vec![0.0; n];
+    let mut xs: Vec<f64> = vec![0.0; n];
+    for i in 0..n {
         ms[i] = -(n as f64)/2.0 + (i as f64);
         es[i] = (- ms[i].abs() * dx/lambda).exp();
         xs[i] = ms[i]*dx;
@@ -262,11 +262,12 @@ fn random_surf_gen_core(h: f64, dx: f64, lambda: f64, s: f64, n: usize) ->  (Vec
 //------------------------Random Surface struct-------------------------------//
 //----------------------------------------------------------------------------//
 
-struct RandSurface{
+pub struct RandSurface{
     lambda: f64,
     h: f64,
     h_rms: f64,
     corr_len: f64,
+    dx: f64,
     pot: Potential
 }
 
@@ -277,6 +278,7 @@ impl Default for RandSurface {
             h: 0.0,         // Height variable used in the surface constructor
             h_rms: 0.0,     // RMS height desired for the surface
             corr_len: 0.0,  // Correlation length desired for the surface
+            dx: 0.0,        // Seperation between point in the x direction
             pot: Potential::default() // The potential
         }
     }
@@ -289,14 +291,22 @@ impl Clone for RandSurface {
             h: self.h, 
             h_rms: self.h_rms, 
             corr_len: self.corr_len, 
+            dx: self.dx,
             pot: self.pot.clone() 
         }
     }
 }
 
+impl std::fmt::Display for RandSurface {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
+        // TODO
+        write!(f, "I haven't done this")
+    }
+}
+
 impl RandSurface {
     /// Generates a random Gaussian surface
-    fn generate_surface(h_rms: f64, dx: f64, corr_len: f64, n: usize, p: [f64;3]) -> Self {
+    pub fn generate_surface(h_rms: f64, dx: f64, corr_len: f64, n: usize, p: [f64;3]) -> Self {
         let lambda: f64 = 0.5*corr_len.powf(2.0/3.0);
         let h: f64 = h_rms*((dx/lambda).tanh()).sqrt();
         let (fs, xs) = random_surf_gen_core(h, dx, lambda, 1.0, n);
@@ -305,12 +315,33 @@ impl RandSurface {
         surf.h = h;
         surf.h_rms = h_rms;
         surf.corr_len = corr_len;
-        surf.pot = Potential::build_potential(xs, fs, p);
+        surf.dx = dx;
+        surf.pot = Potential::build_potential(&xs, &fs, p);
         surf
     }
 
-    fn save_to_file(fname: &str) {
-        
+    pub fn save_to_file(&self, fname: &str) {
+        // TODO: write and make compatible with the format python expects
+        //println!("{}", f_name);
+        let mut file = OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .open(fname)
+            .unwrap();
+
+        writeln!(file, "Surface statistics:").unwrap();
+        writeln!(file, "h_RMS = {}", self.h_rms).unwrap();
+        writeln!(file, "correlation_length = {}", self.corr_len).unwrap();
+        writeln!(file, "Surface generation parameters").unwrap();
+        writeln!(file, "h = {}", self.h).unwrap();
+        writeln!(file, "Dx = {}", self.dx).unwrap();
+        writeln!(file, "lambda = {}", self.lambda).unwrap();
+        writeln!(file, "Surface points in space:").unwrap();
+        writeln!(file, "x,y").unwrap();
+        for i in 0..self.pot.xs.len() {
+            writeln!(file, "{},{}", self.pot.xs[i], self.pot.ys[i]);
+        }
     }
 }
 
@@ -332,6 +363,8 @@ struct Potential {
     re: f64,
     a: f64,
     surf: Spline<f64,f64>,
+    xs: Vec<f64>,
+    ys: Vec<f64>,
     gauss: bool
 }
 
@@ -342,6 +375,8 @@ impl Clone for Potential {
             re: self.re,
             a: self.a,
             surf: self.surf.clone(),
+            xs: self.xs.clone(),
+            ys: self.ys.clone(),
             gauss: self.gauss
         }
     }
@@ -357,10 +392,12 @@ impl std::fmt::Display for Potential {
 impl Potential {
     /// Constructs an interpolated potential struct using the points provided
     /// and the given parameters for the Morse function.
-    fn build_potential(xs: Vec<f64>, ys: Vec<f64>, p: [f64;3]) -> Self {
+    fn build_potential(xs: &Vec<f64>, ys: &Vec<f64>, p: [f64;3]) -> Self {
         assert!(xs.len() == ys.len());
         let mut pot: Potential = Default::default();
         pot.surf = interpolate_surf(xs, ys);
+        pot.xs = xs.clone();
+        pot.ys = ys.clone();
         pot.de = p[0];
         pot.re = p[1];
         pot.a = p[2];
@@ -388,6 +425,8 @@ impl Default for Potential {
             re: 1.0,
             a: 1.0,
             surf: Spline::from_vec(ks),
+            xs: vec![0.0],
+            ys: vec![0.0],
             gauss: true
         }
     }
@@ -668,8 +707,9 @@ fn compose_vector4(x: &[f64], y: &[f64], vx: &[f64], vy: &[f64]) -> Vec<Vector4<
 //----------------------------------------------------------------------------//
 //------------------------External functions----------------------------------//
 //----------------------------------------------------------------------------//
-
-
+// These functions create a shared library that can be called from other
+// languages, e.g. python.
+// I intend to stop using these
 
 #[no_mangle]
 pub unsafe extern fn single_particle(x: f64, y: f64, vx: f64, vy: f64, h: f64,
@@ -698,7 +738,7 @@ pub unsafe extern fn single_particle(x: f64, y: f64, vx: f64, vy: f64, h: f64,
         let x_s = { slice::from_raw_parts(x_surf, n_surf as usize) };
         assert!(!y_surf.is_null());
         let y_s = { slice::from_raw_parts(y_surf, n_surf as usize) };
-        Potential::build_potential(x_s.to_vec(), y_s.to_vec(), copy_into_array(p2))
+        Potential::build_potential(&x_s.to_vec(), &y_s.to_vec(), copy_into_array(p2))
     };
 
     let sim_params = SimParam {
@@ -741,7 +781,7 @@ pub unsafe extern fn multiple_particle(xs: *const f64, ys: *const f64, vxs: *con
         let x_s = { slice::from_raw_parts(x_surf, n_surf as usize) };
         assert!(!y_surf.is_null());
         let y_s = { slice::from_raw_parts(y_surf, n_surf as usize) };
-        Potential::build_potential(x_s.to_vec(), y_s.to_vec(), copy_into_array(p2))
+        Potential::build_potential(&x_s.to_vec(), &y_s.to_vec(), copy_into_array(p2))
     };
 
     // Have to go via C-string to get the file name
@@ -795,7 +835,7 @@ pub unsafe extern fn calc_potential(xs: *const f64, ys: *const f64, vs: *mut f64
         let x_s = { slice::from_raw_parts(x_surf, n_surf as usize) };
         assert!(!y_surf.is_null());
         let y_s = { slice::from_raw_parts(y_surf, n_surf as usize) };
-        Potential::build_potential(x_s.to_vec(), y_s.to_vec(), copy_into_array(p2))
+        Potential::build_potential(&x_s.to_vec(), &y_s.to_vec(), copy_into_array(p2))
     };
 
     // TODO: can be done as an iterator
@@ -855,7 +895,7 @@ pub unsafe extern fn interpolate_test(xs: *const f64, ys: *mut f64, len: u64,
     let xx = x.to_vec();
     let yy = y.to_vec();
 
-    let splin = interpolate_surf(xx, yy);
+    let splin = interpolate_surf(&xx, &yy);
     println!("{:?}", splin);
 
     // TODO: can be done as an iterator?

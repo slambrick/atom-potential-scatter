@@ -138,6 +138,8 @@ class Surf:
         if len(x) != len(f):
             raise ValueError('x and y lengths are not the same')
         if sum((abs(np.diff(x) - Dx)) < 1e-10) != len(x) - 1:
+            print(np.diff(x))
+            print(Dx)
             raise ValueError(('The given x values do not all have the '
                               'expected spacing.'))
         self._x = x
@@ -331,8 +333,13 @@ class RandSurf(Surf):
             fid.write('{},{}\n'.format(x, y))
         fid.close()
 
-    def load_surf(dir_name):
-        fname = dir_name + '/surface_used.csv'
+    def load_surf(dir_name, fname='/surface_used.csv'):
+        if fname[0] == '/':
+            fname = fname[2:]
+        if len(dir_name) != 0:
+            if dir_name[-1] == '/':
+                dir_name = dir_name[0:-1]
+            fname = dir_name + '/' + fname
         content = _load_text(fname)
         self = RandSurf()
         self.h_RMS = _parse_eq(content[1])
