@@ -21,6 +21,9 @@ rcParams.update({'figure.autolayout': True})
 
 plt.style.use('ggplot')
 
+# TODO: the functions that do the plotting in here want to become their own 
+# little analysis scripts that can be run after the main rust executable.
+# The functions that actually run the simulation can be kept in here.
 
 # Probably keep this one? Move to the module?
 def plot_potential_1d(potential):

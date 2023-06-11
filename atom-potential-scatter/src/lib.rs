@@ -20,7 +20,7 @@ use rand_distr::{Normal, Distribution};
 use rand::prelude::*;
 use fftconvolve::{fftconvolve, Mode};
 use ndarray::{Array, ArrayBase, Axis, Data, Dimension, Slice, Array1}; 
-//use convolutions_rs::convolutions::*;
+// TODO: I should generally be using ndarray for data stuff
 
 /// Constans used by the R-K-F integration method.
 /// These value fill up the Butcher tableau
@@ -51,7 +51,13 @@ const B3_: f64 = 1408.0/2565.0;
 const B4_: f64 = 2197.0/4104.0;
 const B5_: f64 = -1.0/5.0;
 
-/// Performs a 1D convolution for two arrays of the same length
+/// Performs a 1D convolution for two arrays of the same length, using the naive
+/// approach. Always reduces the length of the output to the length of the input
+/// and assumes that the two vectors are the same length.
+/// 
+/// * `f` - first vector, length n
+/// * `g` - second vector, length n
+/// 
 fn convolve(f: Vec<f64>, g: Vec<f64>) -> Vec<f64> {
     assert!(f.len() == g.len());
     assert!(f.len() >= 2);
@@ -78,10 +84,19 @@ fn convolve(f: Vec<f64>, g: Vec<f64>) -> Vec<f64> {
     output
 }
 
-/// Faster convolution using FFT
+/// Faster convolution using FFT, only for 1D arrays.
+/// 
+/// Why? Because I want to write my own, that's why.
 fn convolve_fft(f: Vec<f64>, g: Vec<f64>)  {
-    // TODO
+    // TODO: do some checking
+    assert!(f.len() == g.len());
+    let n = f.len();
 
+    // Pad the arrays to the next power of 2
+    
+    // Take the fft of both and multiply them to get the convolution
+
+    // Check the length of the output
 }
 
 /// Copys a slice into an array
@@ -165,6 +180,7 @@ fn diff_at_point(x: f64, spl: &Spline<f64,f64>) -> f64 {
 }
 
 /// Hmm, what does this do?
+/// It is part of the Runge-Kutter methods
 fn c(q: Vector4<f64>, p: &Potential) -> Vector4<f64> {
     let r = if p.gauss {
         q[1] - gaussian(q[0], 5.0, 30.0)
@@ -186,6 +202,13 @@ fn c(q: Vector4<f64>, p: &Potential) -> Vector4<f64> {
 }
 
 /// Performs a single iteration of the 'classic' Runge-Kutta method
+/// 
+/// It is probably beter to use the R-K-F method than this one.
+/// 
+/// # Arguments
+/// * `q` - Initial state of the atom
+/// * `h` - timestep parameter
+/// * `param` - The potential we are moving in
 fn runge_kutter_classic(q: Vector4<f64>, h: f64, param: &Potential) -> (Vector4<f64>, Vector4<f64>, Vector2<f64>) {
     let b = Matrix4::new(0.0, 0.0, 1.0, 0.0,
                          0.0, 0.0, 0.0, 1.0,
@@ -201,6 +224,16 @@ fn runge_kutter_classic(q: Vector4<f64>, h: f64, param: &Potential) -> (Vector4<
 
 /// Performs a single iteration of the 'Runge-Kutta-Fehlberg' method. Returns
 /// a tuple containing the results from both the 5th and 4th order methods
+/// 
+/// In theory the RKF allows for dynamic calculation of the timestep, "adaptive
+/// Runge-Kutta", TODO: implement that.
+/// 
+/// # Arguments
+/// * `q` - Initial state of the atom
+/// * `h` - timestep parameter
+/// * `param` - The potential we are moving in
+/// 
+/// Returns a tupe of (q_5th, q_4th, acceleration)
 fn runge_kutter_fehlberg(q: Vector4<f64>, h: f64, param: &Potential) -> (Vector4<f64>, Vector4<f64>, Vector2<f64>) {
     let b = Matrix4::new(0.0, 0.0, 1.0, 0.0,
                          0.0, 0.0, 0.0, 1.0,
@@ -216,6 +249,15 @@ fn runge_kutter_fehlberg(q: Vector4<f64>, h: f64, param: &Potential) -> (Vector4
     let q_5th = q + h*(k1*B1 + k3*B3 + k4*B4 + k5*B5 + k6*B6);
     let q_4th = q + h*(k1*B1_ + k3*B3_ + k4*B4_ + k5*B5_);
     (q_5th, q_4th, acceleration(q, param))
+}
+
+/// Calculates the relative step size for the next iteration based on the
+/// error from the previous step.
+fn new_step_size(h_old: f64, epsilon: f64, q5: &Vector4<f64>, q4: &Vector4<f64>) -> f64 {
+    let err = (q5[0] - q4[0]).powi(2) + (q5[1] - q4[1]).powi(2);
+    let tmp = epsilon*h_old/(2.0*err);
+    let s = tmp.powf(1.0/4.0);
+    s
 }
 
 /// Hmm what does this do? What acceleration does it calculate
@@ -237,6 +279,18 @@ fn verlet(q: Vector4<f64>, h: f64, param: &Potential, a_old: Vector2<f64>) -> (V
 
 /// Generates a random Gaussian surface. Arguments should be chosen carefully. 
 /// The number of points must be odd.
+/// 
+/// This is the core algorithm that performs the generation fo the random surface
+/// i.e. the parameters are those used by the central algorithm and do not make
+/// much sense directly. Call this function only via the random_surf_gen method
+/// of the RandSurface struct.
+/// 
+/// # Arguments
+/// * `h` - Height parameter
+/// * `dx` - Element length in the random surface
+/// * `lambda` - Parameter related to the correlation length
+/// * `s` - Standard deviation of the Gaussain (usually 1? can I get rid of it?)
+/// * `n` - Number of elements, must be odd
 fn random_surf_gen_core(h: f64, dx: f64, lambda: f64, s: f64, n: usize) ->  (Vec<f64>, Vec<f64>){
     assert!(n % 2 == 1);
     // Random Gaussian points
@@ -258,9 +312,9 @@ fn random_surf_gen_core(h: f64, dx: f64, lambda: f64, s: f64, n: usize) ->  (Vec
         xs[i] = ms[i]*dx;
     }
 
-    // TODO: convolve zs with es
-    // Why is there not just a function that does this?!?!
     //let mut fs = convolve(zs, es);
+    // Convert from vec to ndarray, it would be easier if this was all written in terms
+    // of ndarray (but that might take a while, lets do that in steps) 
     let zs_a = Array1::from_shape_vec(n, zs).unwrap();
     let es_a = Array1::from_shape_vec(n, es).unwrap();
     let fs_a = fftconvolve(&zs_a, &es_a, Mode::Same).unwrap();
@@ -320,7 +374,18 @@ impl std::fmt::Display for RandSurface {
 }
 
 impl RandSurface {
-    /// Generates a random Gaussian surface
+    /// Generates a random Gaussian surface.
+    /// 
+    /// The surface has a Gaussian height distribution an exponential slope distribution
+    /// and also has a Gaussian slope distribution. The surface generation is performed
+    /// by the fun `random_surf_gen_Core()`. 
+    /// 
+    /// # Arguments
+    /// * `h_rms` - the RMS height of the surface
+    /// * `dx` - the length of elements in the surface
+    /// * `corr_len` - the correlation length of the surface
+    /// * `n` - the number of elements (must be odd)
+    /// * `p` - potential paramters as an array [de, re, a]
     pub fn generate_surface(h_rms: f64, dx: f64, corr_len: f64, n: usize, p: [f64;3]) -> Self {
         let lambda: f64 = 0.5*corr_len.powf(2.0/3.0);
         let h: f64 = h_rms*((dx/lambda).tanh()).sqrt();
@@ -335,9 +400,11 @@ impl RandSurface {
         surf
     }
 
+    /// Saves a random surface to a text file.
+    /// 
+    /// The saved format is comma seperated with other parameters at the begnining of the
+    /// file. The format can be ready by the python analysis scripts.
     pub fn save_to_file(&self, fname: &str) {
-        // TODO: write and make compatible with the format python expects
-        //println!("{}", f_name);
         let mut file = OpenOptions::new()
             .write(true)
             .create(true)
@@ -355,7 +422,9 @@ impl RandSurface {
         writeln!(file, "Surface points in space:").unwrap();
         writeln!(file, "x,y").unwrap();
         for i in 0..self.pot.xs.len() {
-            writeln!(file, "{},{}", self.pot.xs[i], self.pot.ys[i]);
+            if let Err(e) = writeln!(file, "{},{}", self.pot.xs[i], self.pot.ys[i]) {
+                println!("Writing error: {}", e);
+            }
         }
     }
 }
@@ -373,7 +442,7 @@ impl RandSurface {
 /// * `a`  - width of the potential well
 /// * `surf` - Spline representing the surface
 /// * `gauss` - are we using the test GAussian bump sample
-struct Potential {
+pub struct Potential {
     de: f64,
     re: f64,
     a: f64,
@@ -422,7 +491,7 @@ impl Potential {
 
     /// Constructs a potential from a Gaussian bump for test purposes using the
     /// given parameters for the Morse function.
-    fn gauss_potential(p: [f64;3]) -> Self {
+    pub fn gauss_potential(p: [f64;3]) -> Self {
         let mut pot: Potential = Default::default();
         pot.de = p[0];
         pot.re = p[1];
@@ -457,18 +526,31 @@ impl Default for Potential {
 
 /// Representation of an atom in a potential with the ability to store the
 /// history of the atoms trajectory.
-struct Atom {
+pub struct Atom {
     /// The current state of the atom: its position and velocity
     q_current: Vector4<f64>,
     /// When using the R-K-F method the current error in the state of the atom
     error_current: Vector4<f64>,
+    /// History of the state of the atom, recorded every `skip_record` steps
     q_history: Vec<Vector4<f64>>,
+    /// History of the error in the method, recorded every `skip_record` steps
     error_history: Vec<Vector4<f64>>,
+    /// Current iteration number
     current_it: usize,
+    /// Are we recording the history of this atoms
     history: bool,
+    /// Are we recording the history of the error of this atom
     record_error: bool,
+    /// What fraction of iterations do we record, e.g. skip_record=3 records every 3rd
     skip_record: usize,
-    current_acceleration: Vector2<f64>
+    /// What is the current acceleration of the atom
+    current_acceleration: Vector2<f64>,
+    /// What is the current time
+    t_current: f64,
+    /// What was the previous timestep
+    h_previous: f64,
+    /// History of the times of atom
+    t_history: Vec<f64>
 }
 
 impl Default for Atom {
@@ -482,7 +564,10 @@ impl Default for Atom {
             history: false,
             skip_record: 10,
             record_error: false,
-            current_acceleration: Vector2::new(0.0, 0.0)
+            current_acceleration: Vector2::new(0.0, 0.0),
+            t_current: 0.0,
+            h_previous: 0.01,
+            t_history: vec![0.0]
         }
     }
 }
@@ -495,9 +580,11 @@ impl Atom {
             param: &Potential) -> Self {
         let mut at: Atom = Default::default();
         at.q_current = q;
+        at.t_current = 0.0;
         at.skip_record = skip_record;
         if m != 0 {
-            at.q_history = vec![at.error_current; m];
+            at.q_history = vec![at.q_current; m];
+            at.t_history = vec![at.t_current; m];
             if record_error {
                 at.record_error = true;
                 at.error_history = vec![at.error_current; m];
@@ -523,11 +610,22 @@ impl Atom {
     /// ```
     fn add_record(&mut self, ind: usize) {
         self.q_history[ind] = self.q_current;
+        self.t_history[ind] = self.t_current;
         if self.record_error {
             self.error_history[ind] = self.error_current;
         }
     }
 
+    /// Performs one iteration of the integration of the particle trajectory. 
+    /// 
+    /// Can use 3 different integration methods. Currently uses the same h for all 
+    /// steps. TODO: a version of this that uses adaptive h.
+    /// 
+    /// # Arguments
+    /// * `self` - the atom we are tracing the trajectory of
+    /// * `h` - the timestep
+    /// * `param` - information on the potential we are travelling in
+    /// * `method` - which integration method to perform
     fn one_it(&mut self, h: f64, param: &Potential, method: &str) {
         let qs = match method {
             "Classic"  => runge_kutter_classic(self.q_current, h, param),
@@ -541,12 +639,21 @@ impl Atom {
             self.error_current = qs.0 - qs.1;
         }
         self.current_it += 1;
+        self.h_previous = h;
         if self.current_it % self.skip_record == 0 && self.history {
             let ind = self.current_it/self.skip_record;
             self.add_record(ind);
         }
     }
 
+    /// Runs n iterations with the same timestep.
+    /// 
+    /// # Arguments
+    /// * `h` - timestep
+    /// * `n_it` - number of iterations to perform
+    /// * `param` - information on the potential we are travelling in
+    /// * `method` - which intergration method to perform
+    /// * `height_stop` - a height above the surface to stop the integration
     fn run_n_iteration(&mut self, h: f64, n_it: usize, param: &Potential, method: &str, height_stop: f64) {
         for _i in 1..n_it {
             self.one_it(h, param, method);
@@ -558,7 +665,21 @@ impl Atom {
         }
     }
 
-    fn write_trajectory(&self, f_name: &str, h: f64) {
+    /// Runs iterations using adaptive runge-kutta
+    fn adaptive_iterations(&mut self, h_max: f64, h_min: f64, n_max: usize, param: &Potential, height_stop: f64) {
+        // TODO
+    }
+
+    /// Writes the recorded trajectory of an atom to a text file. 
+    /// 
+    /// Those timeseteps that have been recorded in the atom trajectory will be
+    /// saved to a csv type file, The time, position, and velocity of the 
+    /// particles are recorred. Assumes a constant timestep.
+    /// 
+    /// # Arguments
+    /// * `f_name` - file name to save data into
+    /// * `h` - timestep used in simulation
+    pub fn write_trajectory(&self, f_name: &str, h: f64) {
         //println!("{}", f_name);
         let mut file = OpenOptions::new()
             .write(true)
@@ -573,19 +694,17 @@ impl Atom {
             writeln!(file, "time,x,y,vx,vy").unwrap();
         }
 
-        let mut t: f64 = 0.0;
         for i in 0..self.q_history.len() {
             let line = if self.record_error {
-                format!("{},{},{},{},{},{},{},{},{}", t, self.q_history[i][0],
+                format!("{},{},{},{},{},{},{},{},{}", self.t_history[i], self.q_history[i][0],
                     self.q_history[i][1], self.q_history[i][2], self.q_history[i][3],
                     self.error_history[i][0], self.error_history[i][1], self.error_history[i][2],
                     self.error_history[i][3])
             } else {
-                format!("{},{},{},{},{}", t, self.q_history[i][0],
+                format!("{},{},{},{},{}", self.t_history[i], self.q_history[i][0],
                     self.q_history[i][1], self.q_history[i][2], self.q_history[i][3])
             };
             writeln!(file, "{}", line).unwrap();
-            t += h*(self.skip_record as f64);
         }
     }
 }
@@ -609,13 +728,13 @@ impl std::fmt::Display for Atom {
 
 /// Contains parameters for a simulation for an atom. Combines them to tie them
 /// together.
-struct SimParam {
-    h: f64,
-    param: Potential,
-    n_it: usize,
-    method: String,
-    skip_record: usize,
-    height_stop: f64
+pub struct SimParam {
+    pub h: f64,
+    pub param: Potential,
+    pub n_it: usize,
+    pub method: String,
+    pub skip_record: usize,
+    pub height_stop: f64
 }
 
 impl std::fmt::Display for SimParam {
@@ -639,7 +758,7 @@ impl std::fmt::Display for SimParam {
 /// * `sim_params` - simulation paraneters.
 /// * `record_atom` - Should the trajectory of the atom be recorded.
 /// * `Potential` - Parameters for the potential to use.
-fn run_particle(init_q: Vector4<f64>, sim_params: &SimParam, record_atom: bool) -> Atom {
+pub fn run_particle(init_q: Vector4<f64>, sim_params: &SimParam, record_atom: bool) -> Atom {
     let m = if record_atom {((sim_params.n_it as f64)/(sim_params.skip_record as f64)).round() as usize} else {0};
     let record_error =  sim_params.method.eq(&String::from("Fehlberg"));
     if !record_error {
@@ -658,7 +777,7 @@ fn run_particle(init_q: Vector4<f64>, sim_params: &SimParam, record_atom: bool) 
 
 /// Saves the provided position and velocity vectors to the provided file name
 /// as comma delimated text files.
-fn save_pos_vel(q: &[Vector4<f64>], f_name: &str) {
+pub fn save_pos_vel(q: &[Vector4<f64>], f_name: &str) {
     let mut file = OpenOptions::new()
             .write(true)
             .create(true)
@@ -675,7 +794,7 @@ fn save_pos_vel(q: &[Vector4<f64>], f_name: &str) {
 }
 
 /// Composes names for text files for the ith atom
-fn compose_save_name(fname: &str, i: usize) -> String {
+pub fn compose_save_name(fname: &str, i: usize) -> String {
     let ith: String = i.to_string();
     let mut num: String = String::from("0").repeat(8 - ith.len());//.push_str(&ith);
     num.push_str(&ith);
@@ -687,7 +806,7 @@ fn compose_save_name(fname: &str, i: usize) -> String {
 }
 
 /// Runs a simulation for a single atom
-fn run_it(q_init: Vector4<f64>, i: usize, record: usize, fname: &str, sim_params: &SimParam) -> Vector4<f64> {
+pub fn run_it(q_init: Vector4<f64>, i: usize, record: usize, fname: &str, sim_params: &SimParam) -> Vector4<f64> {
     let record_atom = i % record == 0;
     let he_atom = run_particle(q_init, sim_params, record_atom);
     // Only save some of the trajectories atoms
@@ -700,13 +819,13 @@ fn run_it(q_init: Vector4<f64>, i: usize, record: usize, fname: &str, sim_params
 }
 
 /// Runs the simulation on n atoms with the given list of starting conditions, parallelised
-fn run_n_particle(record: usize, sim_params: &SimParam, fname: &str, init_q: Vec<Vector4<f64>>) -> Vec<Vector4<f64>> {
+pub fn run_n_particle(record: usize, sim_params: &SimParam, fname: &str, init_q: Vec<Vector4<f64>>) -> Vec<Vector4<f64>> {
     let q_iter = init_q.into_par_iter().enumerate().map(|(i, x)| run_it(x, i, record, fname, sim_params));
     q_iter.collect()
 }
 
 /// Takes 4 slices and composes them into a Vec of 4-Vectors
-fn compose_vector4(x: &[f64], y: &[f64], vx: &[f64], vy: &[f64]) -> Vec<Vector4<f64>> {
+pub fn compose_vector4(x: &[f64], y: &[f64], vx: &[f64], vy: &[f64]) -> Vec<Vector4<f64>> {
     assert!(x.len() == y.len() && y.len() == vx.len() && vx.len() == vy.len());
     let n = x.len();
     let mut qs = vec![Vector4::new(0.0, 0.0, 0.0, 0.0); n];
